@@ -4,7 +4,7 @@
 // ====================================
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // 留言类型定义
 interface Message {
@@ -21,6 +21,8 @@ export default function MessageBoard() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ✅ 查询所有留言（GET）
   const fetchMessages = useCallback(async () => {
@@ -43,8 +45,25 @@ export default function MessageBoard() {
 
   // 页面加载时获取留言
   useEffect(() => {
-    fetchMessages();
-  }, [fetchMessages]);
+    const load = async () => {
+      setFetching(true);
+      try {
+        const res = await fetch("/api/messages");
+        const data = await res.json();
+        if (data.success) {
+          setMessages(data.data);
+        } else {
+          setError("获取留言失败：" + data.message);
+        }
+      } catch (err) {
+        setError("网络错误，请检查数据库连接。提示：先访问 /api/setup 建表");
+        console.error(err);
+      } finally {
+        setFetching(false);
+      }
+    };
+    load();
+  }, []);
 
   // ✅ 发布新留言（POST）
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,6 +118,51 @@ export default function MessageBoard() {
     }
   };
 
+  // ✅ 导出留言
+  const handleExport = (format: "json" | "csv") => {
+    window.open(`/api/messages/export?format=${format}`, "_blank");
+  };
+
+  // ✅ 导入留言
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/messages/import", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        fetchMessages();
+        alert(data.message);
+      } else {
+        setError("导入失败：" + data.message);
+      }
+    } catch (err) {
+      setError("导入失败，请重试");
+      console.error(err);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   // 格式化时间
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -112,6 +176,15 @@ export default function MessageBoard() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,.csv"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
       {/* 标题栏 */}
       <div className="flex items-center justify-between p-5 border-b border-white/5">
         <div>
@@ -122,12 +195,40 @@ export default function MessageBoard() {
             共 {messages.length} 条留言
           </p>
         </div>
-        <button
-          onClick={fetchMessages}
-          className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
-        >
-          🔄 刷新
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleImportClick}
+            disabled={importing}
+            className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5 disabled:opacity-50"
+          >
+            {importing ? "导入中..." : "📥 导入"}
+          </button>
+          <div className="relative group">
+            <button className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5">
+              📤 导出 ▾
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-28 bg-gray-900 border border-white/10 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
+              <button
+                onClick={() => handleExport("json")}
+                className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                JSON
+              </button>
+              <button
+                onClick={() => handleExport("csv")}
+                className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                CSV
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={fetchMessages}
+            className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
+          >
+            🔄 刷新
+          </button>
+        </div>
       </div>
 
       {/* 错误提示 */}
