@@ -415,30 +415,15 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
             </div>
           </div>
           <div className="max-h-48 overflow-y-auto">
-            {errorListItems.map((item) => {
-              const match = item.text.match(/第 (\d+) 行/);
-              const rowLink = match ? match[1] : null;
-              return (
+            {errorListItems.map((item) => (
                 <div
                   key={item.key}
                   className="px-3 py-1.5 text-xs text-red-300 border-b border-red-500/5 hover:bg-red-500/10 transition-colors flex items-start gap-2"
                 >
                   <span className="text-red-500 mt-0.5 shrink-0">●</span>
                   <span>{item.text}</span>
-                  {rowLink && (
-                    <button
-                      onClick={() => {
-                        const targetPage = Math.ceil(Number(rowLink) / PAGE_SIZE);
-                        setPage(targetPage);
-                      }}
-                      className="text-indigo-400 hover:text-indigo-300 underline ml-auto shrink-0"
-                    >
-                      跳转
-                    </button>
-                  )}
                 </div>
-              );
-            })}
+              ))}
             {hasMoreErrors && (
               <div className="px-3 py-2 text-xs text-gray-500 text-center">
                 ... 仅显示前 100 条错误
