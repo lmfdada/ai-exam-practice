@@ -29,7 +29,11 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-screen bg-gradient-to-br from-gray-950 via-indigo-950/30 to-gray-950 text-gray-100">
+      <body className="min-h-screen bg-gray-950 text-gray-100 relative">
+        <div className="fixed inset-0 bg-gradient-to-br from-amber-400/5 via-amber-300/3 to-transparent pointer-events-none" />
+        <div className="fixed inset-0 bg-gradient-to-t from-gray-950 via-gray-950/80 to-transparent pointer-events-none" />
+        <div className="fixed top-0 left-1/4 w-[600px] h-[600px] bg-gradient-to-br from-amber-300/8 via-amber-400/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="fixed top-0 left-1/3 w-96 h-[800px] bg-gradient-to-b from-amber-200/4 to-transparent -skew-x-12 pointer-events-none" />
         <ConfigProvider theme={theme}>
           <App>{children}</App>
         </ConfigProvider>
