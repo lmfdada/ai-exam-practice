@@ -119,7 +119,7 @@ export default function MessageBoard() {
   };
 
   // ✅ 导出留言
-  const handleExport = (format: "json" | "csv") => {
+  const handleExport = (format: "json" | "csv" | "xlsx") => {
     window.open(`/api/messages/export?format=${format}`, "_blank");
   };
 
@@ -219,6 +219,12 @@ export default function MessageBoard() {
                 className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
               >
                 CSV
+              </button>
+              <button
+                onClick={() => handleExport("xlsx")}
+                className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                Excel
               </button>
             </div>
           </div>
