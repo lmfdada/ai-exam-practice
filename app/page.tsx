@@ -1,50 +1,81 @@
-// ====================================
-// 首页 — 左侧留言板 + 右侧 AI 聊天
-// ====================================
-import MessageBoard from "@/components/MessageBoard";
+"use client";
+
+import { useState, useCallback } from "react";
+import OrderImport from "@/components/OrderImport";
+import OrderPreview from "@/components/OrderPreview";
+import OrderHistory from "@/components/OrderHistory";
 import ChatPanel from "@/components/ChatPanel";
 
+interface ParsedData {
+  headers: string[];
+  rows: string[][];
+  autoMapping: Record<string, string>;
+  fingerprint: string;
+  totalRows: number;
+}
+
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<"import" | "history">("import");
+  const [previewData, setPreviewData] = useState<{ headers: string[]; rows: string[][]; mapping: Record<string, string> } | null>(null);
+
+  const handleImportComplete = useCallback(
+    (data: ParsedData, mapping: Record<string, string>) => {
+      setPreviewData({ headers: data.headers, rows: data.rows, mapping });
+    },
+    []
+  );
+
+  const handleBack = useCallback(() => {
+    setPreviewData(null);
+  }, []);
+
   return (
-    <main className="min-h-screen flex flex-col">
-      {/* 顶部导航栏 */}
-      <header className="border-b border-white/5 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-indigo-500/25">
-              AI
-            </div>
-            <div>
-              <h1 className="text-base font-semibold gradient-text">
-                AI 智能留言板
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <a
-              href="/api/setup"
-              target="_blank"
-              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+    <div className="min-h-screen p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-xl font-bold gradient-text">物流批量下单系统</h1>
+          <div className="flex items-center gap-1 bg-white/5 rounded-xl p-1">
+            <button
+              onClick={() => setActiveTab("import")}
+              className={`px-4 py-2 text-sm rounded-lg transition-all ${
+                activeTab === "import"
+                  ? "bg-indigo-500/20 text-indigo-300 shadow-sm"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
             >
-              🔧 初始化数据库
-            </a>
+              📥 批量导入
+            </button>
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-4 py-2 text-sm rounded-lg transition-all ${
+                activeTab === "history"
+                  ? "bg-indigo-500/20 text-indigo-300 shadow-sm"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
+            >
+              📋 运单管理
+            </button>
           </div>
         </div>
-      </header>
 
-      {/* 主体内容 — 双栏布局 */}
-      <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 左侧：留言板 */}
-        <div className="glass-card glow-border overflow-hidden flex flex-col min-h-[500px] lg:min-h-0 lg:h-[calc(100vh-120px)]">
-          <MessageBoard />
+        <div className="glass-card glow-border rounded-2xl p-6">
+          {activeTab === "import" ? (
+            previewData ? (
+              <OrderPreview data={previewData} onBack={handleBack} />
+            ) : (
+              <OrderImport onImportComplete={handleImportComplete} />
+            )
+          ) : (
+            <OrderHistory />
+          )}
         </div>
 
-        {/* 右侧：AI 聊天 */}
-        <div className="glass-card glow-border overflow-hidden flex flex-col min-h-[500px] lg:min-h-0 lg:h-[calc(100vh-120px)]">
-          <ChatPanel />
-        </div>
+        {activeTab === "import" && !previewData && (
+          <div className="mt-6 glass-card glow-border rounded-2xl p-6">
+            <ChatPanel />
+          </div>
+        )}
       </div>
-    </main>
+    </div>
   );
 }
