@@ -347,7 +347,7 @@ export default function MessageBoard() {
       {/* 分页 */}
       <div className="flex items-center justify-between px-5 py-3 border-t border-white/5">
           <span className="text-xs text-gray-500">
-            第 {page}/{totalPages} 页
+            共 {total} 条 · 本页 {messages.length} 条 · 第 {page}/{totalPages} 页
           </span>
           <div className="flex items-center gap-1">
             <button
