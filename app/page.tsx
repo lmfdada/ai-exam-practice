@@ -15,6 +15,7 @@ interface ParsedData {
 
 export default function Home() {
   const [previewData, setPreviewData] = useState<{ headers: string[]; rows: string[][]; mapping: Record<string, string> } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleImportComplete = useCallback(
     (data: ParsedData, mapping: Record<string, string>) => {
@@ -25,6 +26,11 @@ export default function Home() {
 
   const handleBack = useCallback(() => {
     setPreviewData(null);
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleSubmitSuccess = useCallback(() => {
+    setRefreshKey((k) => k + 1);
   }, []);
 
   return (
@@ -36,7 +42,7 @@ export default function Home() {
 
         <div className={`glass-card glow-border rounded-lg px-4 py-2.5 ${previewData ? "flex-1 min-h-0 overflow-hidden" : "shrink-0"}`}>
           {previewData ? (
-            <OrderPreview data={previewData} onBack={handleBack} />
+            <OrderPreview data={previewData} onBack={handleBack} onSubmitSuccess={handleSubmitSuccess} />
           ) : (
             <OrderImport onImportComplete={handleImportComplete} />
           )}
@@ -44,7 +50,7 @@ export default function Home() {
 
         <div className="glass-card glow-border rounded-lg px-4 py-2.5 flex-1 min-h-0 overflow-hidden flex flex-col mb-2">
           <div className="text-sm font-medium text-white mb-2 shrink-0">📋 历史运单记录</div>
-          <OrderHistory />
+          <OrderHistory refreshKey={refreshKey} />
         </div>
       </div>
     </div>

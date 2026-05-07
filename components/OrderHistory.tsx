@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, startTransition } from "react";
+import { useState, useCallback, startTransition, useEffect } from "react";
 
 interface OrderRecord {
   id: number;
@@ -19,7 +19,7 @@ interface OrderRecord {
   created_at: string;
 }
 
-export default function OrderHistory() {
+export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -94,6 +94,13 @@ export default function OrderHistory() {
       doFetch(1, "", "", "", "");
     });
   }, [doFetch]);
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    startTransition(() => {
+      doFetch(1, externalCode, receiverName, startDate, endDate);
+    });
+  }, [refreshKey, doFetch, externalCode, receiverName, startDate, endDate]);
 
   const hasFilters = externalCode || receiverName || startDate || endDate;
 

@@ -27,6 +27,7 @@ interface ImportData {
 interface Props {
   data: ImportData;
   onBack: () => void;
+  onSubmitSuccess?: () => void;
 }
 
 const PAGE_SIZE = 50;
@@ -53,7 +54,7 @@ function getFieldLabel(key: string): string {
   return field ? field.label : key;
 }
 
-export default function OrderPreview({ data, onBack }: Props) {
+export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const [rows, setRows] = useState<PreviewRow[]>(() => {
     return data.rows.map((row) => {
       const r: PreviewRow = emptyRow();
@@ -253,8 +254,9 @@ export default function OrderPreview({ data, onBack }: Props) {
         });
         return next;
       });
+      onSubmitSuccess?.();
     }
-  }, [rows, hasErrors]);
+  }, [rows, hasErrors, onSubmitSuccess]);
 
   if (submitResult) {
     const allSucceeded = submitResult.failCount === 0;
