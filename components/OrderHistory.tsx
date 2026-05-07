@@ -208,7 +208,7 @@ export default function OrderHistory() {
                       {order.receiver_address}
                     </td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.weight}kg</td>
-                    <td className="p-2 text-gray-200 text-center">{order.piece_count}</td>
+                    <td className="p-2 text-gray-200">{order.piece_count}</td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.temperature_level}</td>
                     <td className="p-2 text-gray-400 truncate max-w-[160px]" title={order.remark}>
                       {order.remark || <span className="text-gray-600">-</span>}

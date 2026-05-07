@@ -42,7 +42,7 @@ export default function Home() {
           )}
         </div>
 
-        <div className="glass-card glow-border rounded-lg px-4 py-2.5 flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div className="glass-card glow-border rounded-lg px-4 py-2.5 flex-1 min-h-0 overflow-hidden flex flex-col mb-2">
           <div className="text-sm font-medium text-white mb-2 shrink-0">📋 历史运单记录</div>
           <OrderHistory />
         </div>
