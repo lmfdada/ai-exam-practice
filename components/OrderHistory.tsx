@@ -197,23 +197,23 @@ export default function OrderHistory() {
                 orders.map((order, i) => (
                   <tr key={order.id} className="border-t border-white/5 hover:bg-white/5 transition-colors">
                     <td className="p-2 text-gray-500">{(page - 1) * pageSize + i + 1}</td>
-                    <td className="p-2 text-gray-200 font-mono max-w-[140px] truncate" title={order.external_code}>
+                    <td className="p-2 text-gray-200 font-mono truncate" title={order.external_code}>
                       {order.external_code || <span className="text-gray-600">-</span>}
                     </td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.sender_name}</td>
                     <td className="p-2 text-gray-200 whitespace-nowrap font-mono text-[11px]">{order.sender_phone}</td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.receiver_name}</td>
                     <td className="p-2 text-gray-200 whitespace-nowrap font-mono text-[11px]">{order.receiver_phone}</td>
-                    <td className="p-2 text-gray-200 max-w-[200px] truncate" title={order.receiver_address}>
+                    <td className="p-2 text-gray-200 truncate max-w-[240px]" title={order.receiver_address}>
                       {order.receiver_address}
                     </td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.weight}kg</td>
                     <td className="p-2 text-gray-200 text-center">{order.piece_count}</td>
                     <td className="p-2 text-gray-200 whitespace-nowrap">{order.temperature_level}</td>
-                    <td className="p-2 text-gray-400 max-w-[120px] truncate" title={order.remark}>
+                    <td className="p-2 text-gray-400 truncate max-w-[160px]" title={order.remark}>
                       {order.remark || <span className="text-gray-600">-</span>}
                     </td>
-                    <td className="p-2 text-gray-500 font-mono text-[10px] max-w-[110px] truncate" title={order.batch_id}>
+                    <td className="p-2 text-gray-500 font-mono text-[10px] truncate max-w-[130px]" title={order.batch_id}>
                       {order.batch_id}
                     </td>
                     <td className="p-2 text-gray-500 whitespace-nowrap text-[11px]">

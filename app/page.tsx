@@ -28,13 +28,13 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden p-1">
-      <div className="max-w-full mx-auto px-2 flex flex-col min-h-0 flex-1 gap-2">
-        <div className="px-2 pt-2 shrink-0">
+    <div className="h-screen flex flex-col overflow-hidden">
+      <div className="flex flex-col min-h-0 flex-1 gap-1.5 px-4 max-w-8xl mx-auto w-full">
+        <div className="pt-1.5 shrink-0">
           <h1 className="text-lg font-bold gradient-text">物流批量下单系统</h1>
         </div>
 
-        <div className={`glass-card glow-border rounded-xl px-4 py-3 ${previewData ? "flex-1 min-h-0 overflow-hidden" : "shrink-0"}`}>
+        <div className={`glass-card glow-border rounded-lg px-4 py-2.5 ${previewData ? "flex-1 min-h-0 overflow-hidden" : "shrink-0"}`}>
           {previewData ? (
             <OrderPreview data={previewData} onBack={handleBack} />
           ) : (
@@ -42,8 +42,8 @@ export default function Home() {
           )}
         </div>
 
-        <div className="glass-card glow-border rounded-xl px-4 py-3 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div className="text-sm font-medium text-white mb-3 shrink-0">📋 历史运单记录</div>
+        <div className="glass-card glow-border rounded-lg px-4 py-2.5 flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div className="text-sm font-medium text-white mb-2 shrink-0">📋 历史运单记录</div>
           <OrderHistory />
         </div>
       </div>
