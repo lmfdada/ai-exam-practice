@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ConfigProvider, App } from "antd";
+import theme from "@/lib/antd-theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,7 +30,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
       <body className="min-h-screen bg-gradient-to-br from-gray-950 via-indigo-950/30 to-gray-950 text-gray-100">
-        {children}
+        <ConfigProvider theme={theme}>
+          <App>{children}</App>
+        </ConfigProvider>
       </body>
     </html>
   );

@@ -5,6 +5,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { App } from "antd";
 
 // 留言类型定义
 interface Message {
@@ -15,6 +16,7 @@ interface Message {
 }
 
 export default function MessageBoard() {
+  const { modal, message } = App.useApp();
   const [messages, setMessages] = useState<Message[]>([]);
   const [author, setAuthor] = useState("");
   const [content, setContent] = useState("");
@@ -107,24 +109,34 @@ export default function MessageBoard() {
 
   // ✅ 删除留言（DELETE）
   const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除这条留言吗？")) return;
+    modal.confirm({
+      title: "确认删除",
+      content: "确定要删除这条留言吗？",
+      okText: "确定",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await fetch(`/api/messages?id=${id}`, {
+            method: "DELETE",
+          });
 
-    try {
-      const res = await fetch(`/api/messages?id=${id}`, {
-        method: "DELETE",
-      });
+          const data = await res.json();
 
-      const data = await res.json();
-
-      if (data.success) {
-        fetchMessages(1); // 回到第一页
-      } else {
-        setError("删除失败：" + data.message);
-      }
-    } catch (err) {
-      setError("删除失败，请重试");
-      console.error(err);
-    }
+          if (data.success) {
+            message.success("删除成功");
+            fetchMessages(1);
+          } else {
+            setError("删除失败：" + data.message);
+            message.error("删除失败");
+          }
+        } catch (err) {
+          setError("删除失败，请重试");
+          message.error("删除失败");
+          console.error(err);
+        }
+      },
+    });
   };
 
   // ✅ 导出留言
@@ -157,7 +169,7 @@ export default function MessageBoard() {
 
       if (data.success) {
         fetchMessages(1);
-        alert(data.message);
+        message.success(data.message);
       } else {
         setError("导入失败：" + data.message);
       }
