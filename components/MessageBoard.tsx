@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App } from "antd";
+import EmojiPicker from "emoji-picker-react";
 
 // 留言类型定义
 interface Message {
@@ -26,6 +27,7 @@ export default function MessageBoard() {
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [showEmoji, setShowEmoji] = useState(false);
   const pageSize = 10;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -290,15 +292,40 @@ export default function MessageBoard() {
             style={{ width: "120px" }}
             maxLength={20}
           />
-          <input
-            id="content-input"
-            type="text"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="写下你的留言..."
-            className="input-field flex-1"
-            maxLength={500}
-          />
+          <div className="relative flex-1">
+            <input
+              id="content-input"
+              type="text"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="写下你的留言..."
+              className="input-field w-full pr-10"
+              maxLength={500}
+            />
+            <button
+              type="button"
+              onClick={() => setShowEmoji(!showEmoji)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-lg text-gray-400 hover:text-white transition-colors"
+            >
+              😊
+            </button>
+            {showEmoji && (
+              <div className="absolute right-0 top-full mt-1 z-50">
+                <div
+                  className="fixed inset-0"
+                  onClick={() => setShowEmoji(false)}
+                />
+                <div className="relative">
+                  <EmojiPicker
+                    onEmojiClick={(emojiData) => {
+                      setContent((prev) => prev + emojiData.emoji);
+                      setShowEmoji(false);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <button
           id="submit-message-btn"
