@@ -323,8 +323,8 @@ export default function OrderPreview({ data, onBack }: Props) {
   const hasMoreErrors = Object.keys(allErrors).length > 100;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col min-h-0 h-full">
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h3 className="text-sm font-medium text-white">📋 数据预览与编辑</h3>
           <p className="text-xs text-gray-400 mt-1">
@@ -446,8 +446,8 @@ export default function OrderPreview({ data, onBack }: Props) {
         </div>
       )}
 
-      <div className="border border-white/10 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto max-h-[65vh]">
+      <div className="border border-white/10 rounded-xl overflow-hidden flex-1 min-h-0">
+        <div className="h-full overflow-auto">
           <table className="w-full text-xs border-collapse">
             <thead className="sticky top-0 z-20">
               <tr className="bg-gray-800">
@@ -598,7 +598,7 @@ export default function OrderPreview({ data, onBack }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between mt-4">
+      <div className="flex items-center justify-between mt-4 shrink-0">
         <div className="text-xs text-gray-500">
           {rows.length > 0 && (
             <span>共 {rows.length} 行 · {totalPages} 页 · 错误行 {errorRows.length} 行</span>

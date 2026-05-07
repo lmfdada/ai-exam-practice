@@ -98,8 +98,8 @@ export default function OrderHistory() {
   const hasFilters = externalCode || receiverName || startDate || endDate;
 
   return (
-    <div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+    <div className="flex flex-col min-h-0 h-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-3 shrink-0">
         <div>
           <label className="block text-[10px] text-gray-500 mb-0.5">外部编码</label>
           <input
@@ -157,8 +157,8 @@ export default function OrderHistory() {
         </div>
       </div>
 
-      <div className="border border-white/10 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+      <div className="border border-white/10 rounded-xl overflow-hidden flex-1 min-h-0">
+        <div className="h-full overflow-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-gray-800">
@@ -230,7 +230,7 @@ export default function OrderHistory() {
       </div>
 
       {totalPages > 0 && (
-        <div className="flex items-center justify-between mt-4 text-xs text-gray-400">
+        <div className="flex items-center justify-between mt-4 text-xs text-gray-400 shrink-0">
           <span>共 {total} 条 · 本页 {orders.length} 条</span>
           <div className="flex items-center gap-1">
             <button
