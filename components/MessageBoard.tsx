@@ -345,8 +345,7 @@ export default function MessageBoard() {
       </div>
 
       {/* 分页 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-5 py-3 border-t border-white/5">
+      <div className="flex items-center justify-between px-5 py-3 border-t border-white/5">
           <span className="text-xs text-gray-500">
             第 {page}/{totalPages} 页
           </span>
@@ -386,7 +385,6 @@ export default function MessageBoard() {
             </button>
           </div>
         </div>
-      )}
     </div>
   );
 }
