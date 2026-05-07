@@ -11,7 +11,9 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20")));
     const offset = (page - 1) * pageSize;
-    const keyword = searchParams.get("keyword") || "";
+
+    const externalCode = searchParams.get("externalCode") || "";
+    const receiverName = searchParams.get("receiverName") || "";
     const startDate = searchParams.get("startDate") || "";
     const endDate = searchParams.get("endDate") || "";
 
@@ -20,13 +22,18 @@ export async function GET(request: NextRequest) {
     const values: (string | number)[] = [];
     let idx = 1;
 
-    if (keyword) {
-      conditions.push(`(external_code ILIKE $${idx} OR receiver_name ILIKE $${idx} OR sender_name ILIKE $${idx})`);
-      values.push(`%${keyword}%`);
+    if (externalCode) {
+      conditions.push(`external_code ILIKE $${idx}`);
+      values.push(`%${externalCode}%`);
+      idx++;
+    }
+    if (receiverName) {
+      conditions.push(`receiver_name ILIKE $${idx}`);
+      values.push(`%${receiverName}%`);
       idx++;
     }
     if (startDate) {
-      conditions.push(`created_at >= $${idx}`);
+      conditions.push(`created_at >= $${idx}::timestamp`);
       values.push(startDate);
       idx++;
     }

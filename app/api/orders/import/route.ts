@@ -96,9 +96,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "请上传文件" }, { status: 400 });
     }
 
+    if (file.size === 0) {
+      return NextResponse.json(
+        { success: false, message: "文件为空，请选择有效的 Excel 文件" },
+        { status: 400 }
+      );
+    }
+
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { success: false, message: `文件过大，最大支持 10MB` },
+        { success: false, message: `文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大支持 10MB` },
         { status: 400 }
       );
     }
@@ -106,18 +113,109 @@ export async function POST(request: NextRequest) {
     const name = file.name.toLowerCase();
     if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
       return NextResponse.json(
-        { success: false, message: "仅支持 .xlsx / .xls 文件" },
+        { success: false, message: `不支持的文件格式 ".${name.split(".").pop()}"，仅支持 .xlsx / .xls 文件` },
         { status: 400 }
       );
     }
 
-    const buffer = await file.arrayBuffer();
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
+    let buffer: ArrayBuffer;
+    try {
+      buffer = await file.arrayBuffer();
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "文件读取失败，文件可能已损坏或存在编码异常，请确认文件为有效的 Excel 格式" },
+        { status: 400 }
+      );
+    }
+
+    if (buffer.byteLength === 0) {
+      return NextResponse.json(
+        { success: false, message: "文件内容为空，请检查文件" },
+        { status: 400 }
+      );
+    }
+
+    const headerBytes = new Uint8Array(buffer.slice(0, 8));
+    const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
+    const isXls = file.name.toLowerCase().endsWith(".xls");
+
+    // .xlsx = ZIP format (PK\x03\x04), .xls = OLE2 format (D0\xCF\x11\xE0)
+    const zipHeader = headerBytes[0] === 0x50 && headerBytes[1] === 0x4B &&
+      (headerBytes[2] === 0x03 || headerBytes[2] === 0x05 || headerBytes[2] === 0x07);
+    const ole2Header = headerBytes[0] === 0xD0 && headerBytes[1] === 0xCF &&
+      headerBytes[2] === 0x11 && headerBytes[3] === 0xE0;
+
+    if (isXlsx && !zipHeader) {
+      const isUtf16Bom = (headerBytes[0] === 0xFF && headerBytes[1] === 0xFE) ||
+        (headerBytes[0] === 0xFE && headerBytes[1] === 0xFF);
+      const isHtml = headerBytes[0] === 0x3C &&
+        (headerBytes[1] === 0x68 || headerBytes[1] === 0x48 || headerBytes[1] === 0x21);
+      const isCsv = headerBytes[0] === 0xEF && headerBytes[1] === 0xBB && headerBytes[2] === 0xBF;
+
+      if (isHtml) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 似乎是 HTML 格式（可能从网页直接保存），请另存为真正的 Excel 文件（.xlsx）后再上传`,
+        }, { status: 400 });
+      }
+      if (isCsv) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 似乎是 CSV 文件（含 BOM 头），请将文件另存为 .xlsx 格式后再上传`,
+        }, { status: 400 });
+      }
+      if (isUtf16Bom) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 编码异常：检测到 UTF-16 BOM 头，请将文件另存为 UTF-8 编码的 .xlsx 格式后再上传`,
+        }, { status: 400 });
+      }
+      return NextResponse.json({
+        success: false,
+        message: `文件 "${file.name}" 格式不正确，文件头不匹配有效的 Excel 格式，请确认文件未被损坏`,
+      }, { status: 400 });
+    }
+
+    if (isXls && !ole2Header) {
+      return NextResponse.json({
+        success: false,
+        message: `文件 "${file.name}" 不是有效的 .xls 格式（OLE2），文件可能已损坏或编码异常`,
+      }, { status: 400 });
+    }
+
+    let workbook: ExcelJS.Workbook;
+    try {
+      workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+    } catch (parseError) {
+      const errMsg = String(parseError);
+      if (errMsg.includes("Invalid")) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 解析失败：文件结构无效，可能已损坏或不是有效的 Excel 文件`,
+        }, { status: 400 });
+      }
+      if (errMsg.includes("password") || errMsg.includes("encrypt")) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 已加密/有密码保护，请先解密后再上传`,
+        }, { status: 400 });
+      }
+      if (errMsg.includes("zip") || errMsg.includes("ZIP")) {
+        return NextResponse.json({
+          success: false,
+          message: `文件 "${file.name}" 压缩数据损坏，请重新生成 Excel 文件后再上传`,
+        }, { status: 400 });
+      }
+      return NextResponse.json({
+        success: false,
+        message: `文件 "${file.name}" 解析失败，请确认文件为有效的 Excel 文件（.xlsx / .xls）且未被损坏`,
+      }, { status: 400 });
+    }
 
     if (workbook.worksheets.length === 0) {
       return NextResponse.json(
-        { success: false, message: "Excel 文件中没有工作表" },
+        { success: false, message: `文件 "${file.name}" 中没有工作表，请检查文件内容` },
         { status: 400 }
       );
     }

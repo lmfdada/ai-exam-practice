@@ -20,6 +20,7 @@ export default function OrderImport({ onImportComplete }: Props) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -34,45 +35,74 @@ export default function OrderImport({ onImportComplete }: Props) {
     setError("");
     setProgress(0);
     setParsed(null);
-
-    const interval = setInterval(() => {
-      setProgress((p) => Math.min(p + 15, 80));
-    }, 200);
+    setProgressLabel(`上传中... 0/${Math.round(file.size / 1024)}KB`);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/api/orders/import", {
-        method: "POST",
-        body: formData,
+      const xhr = new XMLHttpRequest();
+
+      const result = await new Promise<ParsedData>((resolve, reject) => {
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 80);
+            setProgress(pct);
+            const loadedKB = Math.round(e.loaded / 1024);
+            const totalKB = Math.round(e.total / 1024);
+            setProgressLabel(`上传中... ${loadedKB}/${totalKB}KB`);
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (data.success) {
+                resolve(data.data as ParsedData);
+              } else {
+                reject(new Error(data.message || "解析失败"));
+              }
+            } catch {
+              reject(new Error("服务器返回数据异常"));
+            }
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              reject(new Error(data.message || `服务器错误 (${xhr.status})`));
+            } catch {
+              reject(new Error(`服务器错误 (${xhr.status})`));
+            }
+          }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("网络错误，请检查连接后重试")));
+        xhr.addEventListener("abort", () => reject(new Error("上传已取消")));
+
+        xhr.open("POST", "/api/orders/import");
+        xhr.send(formData);
       });
 
-      clearInterval(interval);
-      setProgress(100);
+      setProgress(85);
+      setProgressLabel("识别模板中...");
 
-      const data = await res.json();
-
-      if (!data.success) {
-        setError(data.message || "解析失败");
-        return;
-      }
-
-      const p = data.data as ParsedData;
-
-      const templateRes = await fetch(`/api/templates?fingerprint=${encodeURIComponent(p.fingerprint)}`);
+      const templateRes = await fetch(`/api/templates?fingerprint=${encodeURIComponent(result.fingerprint)}`);
       const templateData = await templateRes.json();
 
+      setProgress(100);
       if (templateData.success && templateData.data) {
         setMapping(templateData.data.mapping as Record<string, string>);
+        setProgressLabel(`已加载历史模板 (${result.totalRows} 条数据)`);
       } else {
-        setMapping({ ...p.autoMapping });
+        setMapping({ ...result.autoMapping });
+        setProgressLabel(`自动匹配完成 (${result.totalRows} 条数据)`);
       }
 
-      setParsed(p);
-    } catch {
-      clearInterval(interval);
-      setError("网络错误，请重试");
+      setParsed(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "未知错误");
+      setProgress(0);
+      setProgressLabel("");
     } finally {
       setUploading(false);
     }
@@ -123,12 +153,15 @@ export default function OrderImport({ onImportComplete }: Props) {
           <div>
             <h3 className="text-sm font-medium text-white">列映射确认</h3>
             <p className="text-xs text-gray-400 mt-1">
-              文件：{parsed.totalRows} 行 · 检测到 {parsed.headers.length} 列
+              {parsed.totalRows} 行数据 · 检测到 {parsed.headers.length} 列
+              {parsed.totalRows > 500 && (
+                <span className="text-amber-400 ml-2">⚠ 数据量较大 ({parsed.totalRows} 行)</span>
+              )}
             </p>
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => { setParsed(null); setMapping({}); }}
+              onClick={() => { setParsed(null); setMapping({}); setProgress(0); setProgressLabel(""); }}
               className="text-xs px-3 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
             >
               ↩ 重新选择
@@ -190,9 +223,17 @@ export default function OrderImport({ onImportComplete }: Props) {
   return (
     <div>
       {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
-          {error}
-          <button onClick={() => setError("")} className="ml-2 text-red-300 hover:text-white">✕</button>
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-2">
+              <span className="text-red-400 mt-0.5">⚠</span>
+              <div>
+                <p className="text-red-400 text-sm font-medium">导入失败</p>
+                <p className="text-red-300/80 text-xs mt-1">{error}</p>
+              </div>
+            </div>
+            <button onClick={() => setError("")} className="text-red-400 hover:text-white ml-4">✕</button>
+          </div>
         </div>
       )}
 
@@ -200,12 +241,12 @@ export default function OrderImport({ onImportComplete }: Props) {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => !uploading && fileInputRef.current?.click()}
         className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
           dragOver
             ? "border-indigo-400 bg-indigo-500/10"
             : "border-white/20 hover:border-indigo-400/50 hover:bg-white/5"
-        }`}
+        } ${uploading ? "pointer-events-none" : ""}`}
       >
         <input
           ref={fileInputRef}
@@ -217,9 +258,9 @@ export default function OrderImport({ onImportComplete }: Props) {
 
         {uploading ? (
           <div>
-            <div className="text-4xl mb-3">⏳</div>
-            <p className="text-gray-300 text-sm mb-3">正在解析文件...</p>
-            <div className="max-w-xs mx-auto bg-white/10 rounded-full h-2 overflow-hidden">
+            <div className="text-4xl mb-3 mb-4">⏳</div>
+            <p className="text-gray-300 text-sm mb-2">{progressLabel}</p>
+            <div className="max-w-xs mx-auto bg-white/10 rounded-full h-2.5 overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300"
                 style={{ width: `${progress}%` }}
@@ -233,7 +274,7 @@ export default function OrderImport({ onImportComplete }: Props) {
             <p className="text-gray-300 text-sm mb-1">
               拖拽 Excel 文件到此处，或<span className="text-indigo-400">点击选择文件</span>
             </p>
-            <p className="text-xs text-gray-500">支持 .xlsx / .xls 格式</p>
+            <p className="text-xs text-gray-500">支持 .xlsx / .xls 格式，最大 10MB</p>
           </div>
         )}
       </div>
