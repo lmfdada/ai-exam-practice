@@ -22,16 +22,23 @@ export default function MessageBoard() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
   const [importing, setImporting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 10;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ 查询所有留言（GET）
-  const fetchMessages = useCallback(async () => {
+  const totalPages = Math.ceil(total / pageSize);
+
+  // ✅ 查询留言（GET，分页）
+  const fetchMessages = useCallback(async (targetPage = 1) => {
     try {
       setFetching(true);
-      const res = await fetch("/api/messages");
+      const res = await fetch(`/api/messages?page=${targetPage}&pageSize=${pageSize}`);
       const data = await res.json();
       if (data.success) {
         setMessages(data.data);
+        setTotal(data.total);
+        setPage(data.page);
       } else {
         setError("获取留言失败：" + data.message);
       }
@@ -48,10 +55,12 @@ export default function MessageBoard() {
     const load = async () => {
       setFetching(true);
       try {
-        const res = await fetch("/api/messages");
+        const res = await fetch(`/api/messages?page=1&pageSize=${pageSize}`);
         const data = await res.json();
         if (data.success) {
           setMessages(data.data);
+          setTotal(data.total);
+          setPage(data.page);
         } else {
           setError("获取留言失败：" + data.message);
         }
@@ -84,7 +93,7 @@ export default function MessageBoard() {
 
       if (data.success) {
         setContent(""); // 清空内容，保留作者名
-        fetchMessages(); // 重新获取列表
+        fetchMessages(1); // 回到第一页
       } else {
         setError("发布失败：" + data.message);
       }
@@ -108,7 +117,7 @@ export default function MessageBoard() {
       const data = await res.json();
 
       if (data.success) {
-        fetchMessages(); // 重新获取列表
+        fetchMessages(1); // 回到第一页
       } else {
         setError("删除失败：" + data.message);
       }
@@ -147,7 +156,7 @@ export default function MessageBoard() {
       const data = await res.json();
 
       if (data.success) {
-        fetchMessages();
+        fetchMessages(1);
         alert(data.message);
       } else {
         setError("导入失败：" + data.message);
@@ -180,7 +189,7 @@ export default function MessageBoard() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.csv"
+        accept=".json,.csv,.xlsx"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -192,10 +201,16 @@ export default function MessageBoard() {
             📋 留言板
           </h2>
           <p className="text-xs text-gray-400 mt-1">
-            共 {messages.length} 条留言
+            共 {total} 条留言
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.open("/api/messages/template", "_blank")}
+            className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
+          >
+            📄 模板
+          </button>
           <button
             onClick={handleImportClick}
             disabled={importing}
@@ -229,7 +244,7 @@ export default function MessageBoard() {
             </div>
           </div>
           <button
-            onClick={fetchMessages}
+            onClick={() => fetchMessages(page)}
             className="text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
           >
             🔄 刷新
@@ -328,6 +343,50 @@ export default function MessageBoard() {
           ))
         )}
       </div>
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t border-white/5">
+          <span className="text-xs text-gray-500">
+            第 {page}/{totalPages} 页
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => fetchMessages(page - 1)}
+              disabled={page <= 1}
+              className="px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              上一页
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+              .map((p, idx, arr) => (
+                <span key={p} className="flex items-center">
+                  {idx > 0 && arr[idx - 1] !== p - 1 && (
+                    <span className="px-1 text-xs text-gray-600">...</span>
+                  )}
+                  <button
+                    onClick={() => fetchMessages(p)}
+                    className={`w-8 h-8 text-xs rounded-lg transition-colors ${
+                      p === page
+                        ? "bg-indigo-500/20 text-indigo-400 font-medium"
+                        : "text-gray-400 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                </span>
+              ))}
+            <button
+              onClick={() => fetchMessages(page + 1)}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

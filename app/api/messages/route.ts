@@ -12,14 +12,25 @@ function getDb() {
   return neon(process.env.DATABASE_URL!);
 }
 
-// ✅ GET — 查询所有留言
-export async function GET() {
+// ✅ GET — 查询留言（分页）
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+    const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get("pageSize") || "10")));
+    const offset = (page - 1) * pageSize;
+
     const sql = getDb();
+
+    const countResult = await sql`SELECT COUNT(*) as total FROM messages`;
+    const total = Number(countResult[0].total);
+
     const rows = await sql`
       SELECT * FROM messages ORDER BY created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
-    return NextResponse.json({ success: true, data: rows });
+
+    return NextResponse.json({ success: true, data: rows, total, page, pageSize });
   } catch (error) {
     console.error("查询留言失败:", error);
     return NextResponse.json(

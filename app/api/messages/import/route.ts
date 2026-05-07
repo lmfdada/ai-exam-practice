@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import ExcelJS from "exceljs";
 
 function getDb() {
   return neon(process.env.DATABASE_URL!);
@@ -70,11 +71,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const text = await file.text();
+    const buffer = await file.arrayBuffer();
     const fileName = file.name.toLowerCase();
     let records: { author: string; content: string }[] = [];
 
     if (fileName.endsWith(".json")) {
+      const text = new TextDecoder().decode(buffer);
       const parsed = JSON.parse(text);
       if (Array.isArray(parsed)) {
         records = parsed
@@ -90,10 +92,39 @@ export async function POST(request: NextRequest) {
         );
       }
     } else if (fileName.endsWith(".csv")) {
+      const text = new TextDecoder().decode(buffer);
       records = parseCSV(text);
+    } else if (fileName.endsWith(".xlsx")) {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
+
+      if (!worksheet) {
+        return NextResponse.json(
+          { success: false, message: "Excel 文件中没有工作表" },
+          { status: 400 }
+        );
+      }
+
+      const headerRow = worksheet.getRow(1);
+      const authorCol = String(headerRow.getCell(1).value || "").trim();
+      const contentCol = String(headerRow.getCell(2).value || "").trim();
+      const hasHeader =
+        authorCol.includes("作者") || authorCol.includes("author");
+
+      const startRow = hasHeader ? 2 : 1;
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber < startRow) return;
+        const author = String(row.getCell(1).value || "").trim();
+        const content = String(row.getCell(2).value || "").trim();
+        if (author && content) {
+          records.push({ author, content });
+        }
+      });
     } else {
       return NextResponse.json(
-        { success: false, message: "仅支持 .json 和 .csv 文件" },
+        { success: false, message: "仅支持 .json、.csv 和 .xlsx 文件" },
         { status: 400 }
       );
     }
