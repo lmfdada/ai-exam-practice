@@ -64,14 +64,6 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
     }
   }, [pageSize]);
 
-  const [loaded, setLoaded] = useState(false);
-  if (!loaded) {
-    startTransition(() => {
-      doFetch(1, externalCode, receiverName, startDate, endDate);
-      setLoaded(true);
-    });
-  }
-
   const fetchOrders = useCallback(
     (targetPage: number) => doFetch(targetPage, externalCode, receiverName, startDate, endDate),
     [doFetch, externalCode, receiverName, startDate, endDate]
@@ -96,11 +88,17 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
   }, [doFetch]);
 
   useEffect(() => {
-    if (refreshKey === undefined || refreshKey === 0) return;
     startTransition(() => {
       doFetch(1, externalCode, receiverName, startDate, endDate);
     });
-  }, [refreshKey, doFetch, externalCode, receiverName, startDate, endDate]);
+  }, []);
+
+  useEffect(() => {
+    if (refreshKey === undefined) return;
+    startTransition(() => {
+      doFetch(1, externalCode, receiverName, startDate, endDate);
+    });
+  }, [refreshKey]);
 
   const hasFilters = externalCode || receiverName || startDate || endDate;
 
