@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, startTransition } from "react";
 
 interface OrderRecord {
   id: number;
@@ -55,10 +55,12 @@ export default function OrderHistory() {
     }
   }, [pageSize]);
 
-  const initRef = useRef(false);
-  if (!initRef.current) {
-    initRef.current = true;
-    setTimeout(() => doFetch(1, keyword, startDate, endDate), 0);
+  const [loaded, setLoaded] = useState(false);
+  if (!loaded) {
+    startTransition(() => {
+      doFetch(1, keyword, startDate, endDate);
+      setLoaded(true);
+    });
   }
 
   const fetchOrders = useCallback(
@@ -72,29 +74,29 @@ export default function OrderHistory() {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-2 mb-3">
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
           placeholder="搜索外部编码 / 收件人 / 发件人..."
-          className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-400 transition-colors"
+          className="flex-1 min-w-[160px] bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-400 transition-colors"
         />
         <input
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
-          className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm text-gray-200 outline-none focus:border-indigo-400 transition-colors"
+          className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-indigo-400 transition-colors"
         />
         <input
           type="date"
           value={endDate}
           onChange={(e) => setEndDate(e.target.value)}
-          className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm text-gray-200 outline-none focus:border-indigo-400 transition-colors"
+          className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-indigo-400 transition-colors"
         />
         <button
           onClick={handleSearch}
-          className="px-4 py-2 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 text-sm transition-colors"
+          className="px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 text-sm transition-colors"
         >
           搜索
         </button>

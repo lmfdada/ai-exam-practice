@@ -201,7 +201,7 @@ export default function OrderImport({ onImportComplete }: Props) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all ${
+        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
           dragOver
             ? "border-indigo-400 bg-indigo-500/10"
             : "border-white/20 hover:border-indigo-400/50 hover:bg-white/5"

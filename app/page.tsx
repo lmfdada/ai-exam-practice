@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import OrderImport from "@/components/OrderImport";
 import OrderPreview from "@/components/OrderPreview";
 import OrderHistory from "@/components/OrderHistory";
-import ChatPanel from "@/components/ChatPanel";
 
 interface ParsedData {
   headers: string[];
@@ -15,7 +14,6 @@ interface ParsedData {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"import" | "history">("import");
   const [previewData, setPreviewData] = useState<{ headers: string[]; rows: string[][]; mapping: Record<string, string> } | null>(null);
 
   const handleImportComplete = useCallback(
@@ -30,51 +28,24 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold gradient-text">物流批量下单系统</h1>
-          <div className="flex items-center gap-1 bg-white/5 rounded-xl p-1">
-            <button
-              onClick={() => setActiveTab("import")}
-              className={`px-4 py-2 text-sm rounded-lg transition-all ${
-                activeTab === "import"
-                  ? "bg-indigo-500/20 text-indigo-300 shadow-sm"
-                  : "text-gray-400 hover:text-gray-300"
-              }`}
-            >
-              📥 批量导入
-            </button>
-            <button
-              onClick={() => setActiveTab("history")}
-              className={`px-4 py-2 text-sm rounded-lg transition-all ${
-                activeTab === "history"
-                  ? "bg-indigo-500/20 text-indigo-300 shadow-sm"
-                  : "text-gray-400 hover:text-gray-300"
-              }`}
-            >
-              📋 运单管理
-            </button>
-          </div>
+    <div className="min-h-screen p-1">
+      <div className="max-w-full mx-auto px-2">
+        <div className="mb-3 px-2 pt-2">
+          <h1 className="text-lg font-bold gradient-text">物流批量下单系统</h1>
         </div>
 
-        <div className="glass-card glow-border rounded-2xl p-6">
-          {activeTab === "import" ? (
-            previewData ? (
-              <OrderPreview data={previewData} onBack={handleBack} />
-            ) : (
-              <OrderImport onImportComplete={handleImportComplete} />
-            )
+        <div className="glass-card glow-border rounded-xl px-4 py-3 mb-3">
+          {previewData ? (
+            <OrderPreview data={previewData} onBack={handleBack} />
           ) : (
-            <OrderHistory />
+            <OrderImport onImportComplete={handleImportComplete} />
           )}
         </div>
 
-        {activeTab === "import" && !previewData && (
-          <div className="mt-6 glass-card glow-border rounded-2xl p-6">
-            <ChatPanel />
-          </div>
-        )}
+        <div className="glass-card glow-border rounded-xl px-4 py-3">
+          <div className="text-sm font-medium text-white mb-3">📋 历史运单记录</div>
+          <OrderHistory />
+        </div>
       </div>
     </div>
   );

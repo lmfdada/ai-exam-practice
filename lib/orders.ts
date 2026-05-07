@@ -35,17 +35,17 @@ export type OrderRow = {
 };
 
 export const FIELD_KEYWORDS: Record<string, string[]> = {
-  external_code: ["外部编码", "外部单号", "订单编号", "订单号", "外部订单号", "excode", "external_code", "external code", "外编码"],
+  external_code: ["外部编码", "外部单号", "订单编号", "订单号", "外部订单号", "客户单号", "excode", "external_code", "external code", "外编码", "ref code"],
   sender_name: ["发件人姓名", "发件人", "寄件人姓名", "寄件人", "发货人", "发货人姓名", "sender_name", "sender name", "sender"],
-  sender_phone: ["发件人电话", "发件人手机", "发件人联系方式", "寄件人电话", "寄件人手机", "发货人电话", "sender_phone", "sender phone", "sender tel"],
-  sender_address: ["发件人地址", "寄件人地址", "发货人地址", "sender_address", "sender address"],
+  sender_phone: ["发件人电话", "发件人手机", "发件人联系方式", "寄件人电话", "寄件人手机", "发货人电话", "发货电话", "发件电话", "sender_phone", "sender phone", "sender tel"],
+  sender_address: ["发件人地址", "寄件人地址", "发货人地址", "发货地址", "发件地址", "sender_address", "sender address"],
   receiver_name: ["收件人姓名", "收件人", "收货人", "收货人姓名", "接收人", "receiver_name", "receiver name", "receiver", "consignee"],
-  receiver_phone: ["收件人电话", "收件人手机", "收件人联系方式", "收货人电话", "收货人手机", "receiver_phone", "receiver phone", "receiver tel"],
-  receiver_address: ["收件人地址", "收货人地址", "接收人地址", "receiver_address", "receiver address"],
+  receiver_phone: ["收件人电话", "收件人手机", "收件人联系方式", "收货人电话", "收货人手机", "收货电话", "收件电话", "receiver_phone", "receiver phone", "receiver tel"],
+  receiver_address: ["收件人地址", "收货人地址", "收货地址", "收件地址", "接收人地址", "receiver_address", "receiver address"],
   weight: ["重量", "重量kg", "重量(kg)", "重量（kg）", "weight", "kg", "毛重", "货物重量"],
-  piece_count: ["件数", "数量", "包裹数量", "总件数", "piece_count", "piece count", "pcs", "箱数"],
-  temperature_level: ["温层", "温度层", "温层要求", "温度要求", "温度", "temperature_level", "temperature"],
-  remark: ["备注", "备注信息", "说明", "备注说明", "remark", "notes", "备注/说明"],
+  piece_count: ["件数", "数量", "包裹数量", "总件数", "piece_count", "piece count", "pcs", "箱数", "qty"],
+  temperature_level: ["温层", "温度层", "温层要求", "温度要求", "温度", "temperature_level", "temperature", "temp zone", "temp"],
+  remark: ["备注", "备注信息", "说明", "备注说明", "remark", "notes", "备注/说明", "附言", "note"],
 };
 
 export function autoDetectMapping(headers: string[]): Record<string, string> {
@@ -54,28 +54,35 @@ export function autoDetectMapping(headers: string[]): Record<string, string> {
 
   for (const header of headers) {
     const trimmed = header.trim().toLowerCase();
-    let matched = false;
+    const headerClean = trimmed.replace(/[\s\-_（）()]/g, "");
+
+    interface Candidate {
+      fieldKey: string;
+      matchLen: number;
+    }
+    const candidates: Candidate[] = [];
 
     for (const [fieldKey, keywords] of Object.entries(FIELD_KEYWORDS)) {
       if (usedFields.has(fieldKey)) continue;
-      if (keywords.some((kw) => trimmed.includes(kw.toLowerCase()))) {
-        mapping[header] = fieldKey;
-        usedFields.add(fieldKey);
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      for (const [fieldKey, keywords] of Object.entries(FIELD_KEYWORDS)) {
-        if (usedFields.has(fieldKey)) continue;
-        const headerClean = trimmed.replace(/[\s\-_（）()]/g, "");
-        if (keywords.some((kw) => kw.toLowerCase().replace(/[\s\-_（）()]/g, "") === headerClean)) {
-          mapping[header] = fieldKey;
-          usedFields.add(fieldKey);
+      for (const kw of keywords) {
+        const kwLower = kw.toLowerCase();
+        if (trimmed.includes(kwLower)) {
+          candidates.push({ fieldKey, matchLen: kwLower.length });
+          break;
+        }
+        const kwClean = kwLower.replace(/[\s\-_（）()]/g, "");
+        if (kwClean === headerClean) {
+          candidates.push({ fieldKey, matchLen: kwClean.length + 100 });
           break;
         }
       }
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.matchLen - a.matchLen);
+      const best = candidates[0];
+      mapping[header] = best.fieldKey;
+      usedFields.add(best.fieldKey);
     }
   }
 
