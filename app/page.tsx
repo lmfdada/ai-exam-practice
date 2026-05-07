@@ -18,9 +18,6 @@ export default function Home() {
               <h1 className="text-base font-semibold gradient-text">
                 AI 智能留言板
               </h1>
-              <p className="text-xs text-gray-500">
-                全栈练习项目 · Next.js + Vercel Postgres + AI SDK
-              </p>
             </div>
           </div>
 

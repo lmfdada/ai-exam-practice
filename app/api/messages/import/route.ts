@@ -59,6 +59,34 @@ function parseCSV(text: string): { author: string; content: string }[] {
   return records;
 }
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+const MIME_TYPES: Record<string, string[]> = {
+  json: ["application/json", "text/json"],
+  csv: ["text/csv", "text/plain", "application/csv"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"],
+};
+
+const MAGIC_SIGNATURES: Record<string, Uint8Array[]> = {
+  json: [new Uint8Array([0x7b]), new Uint8Array([0x5b])], // { or [
+  xlsx: [new Uint8Array([0x50, 0x4b, 0x03, 0x04])], // PK zip header
+};
+
+function getExtension(filename: string): string | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".xlsx")) return "xlsx";
+  return null;
+}
+
+function validateMagicBytes(buffer: ArrayBuffer, ext: string): boolean {
+  const sigs = MAGIC_SIGNATURES[ext];
+  if (!sigs) return true; // CSV has no reliable magic bytes, skip
+  const view = new Uint8Array(buffer, 0, 4);
+  return sigs.some((sig) => sig.every((byte, i) => byte === view[i]));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -71,13 +99,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 校验文件大小
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { success: false, message: `文件过大，最大支持 5MB（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB）` },
+        { status: 400 }
+      );
+    }
+
+    // 校验文件扩展名
+    const ext = getExtension(file.name);
+    if (!ext) {
+      return NextResponse.json(
+        { success: false, message: "不支持的文件格式，仅支持 .json、.csv 和 .xlsx 文件" },
+        { status: 400 }
+      );
+    }
+
+    // 校验 MIME 类型
+    const allowedMimes = MIME_TYPES[ext];
+    if (allowedMimes && file.type && !allowedMimes.includes(file.type)) {
+      return NextResponse.json(
+        { success: false, message: `文件类型不符，请确保上传正确的 ${ext.toUpperCase()} 文件` },
+        { status: 400 }
+      );
+    }
+
     const buffer = await file.arrayBuffer();
+
+    // 校验文件魔术字节
+    if (!validateMagicBytes(buffer, ext)) {
+      return NextResponse.json(
+        { success: false, message: `文件内容格式不正确，请检查文件是否损坏或不是有效的 ${ext.toUpperCase()} 文件` },
+        { status: 400 }
+      );
+    }
+
     const fileName = file.name.toLowerCase();
     let records: { author: string; content: string }[] = [];
 
     if (fileName.endsWith(".json")) {
       const text = new TextDecoder().decode(buffer);
-      const parsed = JSON.parse(text);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return NextResponse.json(
+          { success: false, message: "JSON 解析失败，文件内容不是合法的 JSON 格式" },
+          { status: 400 }
+        );
+      }
       if (Array.isArray(parsed)) {
         records = parsed
           .map((item) => ({
@@ -85,9 +156,15 @@ export async function POST(request: NextRequest) {
             content: String(item.content || item.message || item.text || "").trim(),
           }))
           .filter((r) => r.author && r.content);
+        if (parsed.length > 0 && records.length === 0) {
+          return NextResponse.json(
+            { success: false, message: "JSON 数据格式有误，每条记录需包含 author 和 content 字段" },
+            { status: 400 }
+          );
+        }
       } else {
         return NextResponse.json(
-          { success: false, message: "JSON 格式错误，需要数组格式" },
+          { success: false, message: "JSON 格式错误，需要数组格式（以 [ 开头）" },
           { status: 400 }
         );
       }
