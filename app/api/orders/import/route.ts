@@ -465,6 +465,12 @@ function createStream(
           }
         }
 
+        // 过滤噪声行（卡片式布局中拖尾的合计/单据/收货信息等非明细行）
+        if (rule) {
+          allDataRows = allDataRows.filter((row) => row.sku_code || row.sku_name);
+          rowCount = allDataRows.length;
+        }
+
         if (allDataRows.length === 0) {
           const formatLabel = ext === ".xlsx" || ext === ".xls" ? "Excel"
             : ext === ".docx" ? "Word"
@@ -662,6 +668,12 @@ async function handleNonStreamImport(
           rowCount = result.rows.length;
         }
       }
+    }
+
+    // 过滤噪声行（卡片式布局中拖尾的合计/单据/收货信息等非明细行）
+    if (rule) {
+      allDataRows = allDataRows.filter((row) => row.sku_code || row.sku_name);
+      rowCount = allDataRows.length;
     }
 
     if (allDataRows.length === 0) {
