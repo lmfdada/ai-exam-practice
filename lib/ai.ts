@@ -20,8 +20,8 @@ interface AIConfig {
 function getAIConfig(): AIConfig {
   return {
     apiKey: process.env.AI_API_KEY || process.env.OPENAI_API_KEY || "",
-    baseUrl: process.env.AI_BASE_URL || "https://api.openai.com/v1",
-    model: process.env.AI_MODEL || "gpt-4o",
+    baseUrl: process.env.AI_BASE_URL || "https://api.deepseek.com/v1",
+    model: process.env.AI_MODEL || "deepseek-chat",
   };
 }
 

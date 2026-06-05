@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/orders";
+import { safeGetDb } from "@/lib/orders";
 
 export async function GET(request: NextRequest) {
   try {
+    const sql = safeGetDb();
+    if (!sql) {
+      return NextResponse.json({
+        success: true,
+        data: { orders: [], total: 0, page: 1, pageSize: 20, totalPages: 0 },
+      });
+    }
+
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20")));
@@ -13,7 +21,6 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get("startDate") || "";
     const endDate = searchParams.get("endDate") || "";
 
-    const sql = getDb();
     const conditions: string[] = [];
     const values: (string | number)[] = [];
     let idx = 1;

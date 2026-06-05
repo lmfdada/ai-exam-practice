@@ -4,6 +4,18 @@ export function getDb() {
   return neon(process.env.DATABASE_URL!);
 }
 
+/** 安全获取 DB 连接，DATABASE_URL 未配置时返回 null（不崩溃） */
+export function safeGetDb() {
+  if (!process.env.DATABASE_URL) {
+    return null;
+  }
+  try {
+    return neon(process.env.DATABASE_URL);
+  } catch {
+    return null;
+  }
+}
+
 // ===== SKU 模式下的标准字段定义（考试要求） =====
 export const STANDARD_FIELDS = [
   { key: "external_code", label: "外部编码", required: false, group: "order" },

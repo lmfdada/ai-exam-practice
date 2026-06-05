@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { ParseRule, RuleConfig, ColumnMapping, PostProcessor, PostProcessorType } from "@/lib/rules";
 
 interface Props {
@@ -50,6 +50,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
     steps: [],
   });
   const [activeTab, setActiveTab] = useState<Tab>("basic");
+  const [mode, setMode] = useState<"simple" | "advanced">("simple");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -65,6 +66,73 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
     mapping: Record<string, string>;
   } | null>(null);
   const [previewError, setPreviewError] = useState("");
+
+  // ===== 规则异常检测 =====
+  const anomalies = useMemo(() => {
+    const list: { tab: Tab; message: string }[] = [];
+
+    // Basic: 名称未填写
+    if (!name.trim()) {
+      list.push({ tab: "basic", message: "规则名称未填写" });
+    }
+
+    // Mapping: 列映射不完整
+    const hasIncompleteColumn = config.columns.some(
+      (col) => (!col.sourceHeader && col.sourceIndex === undefined) || !col.targetField
+    );
+    if (hasIncompleteColumn) {
+      list.push({ tab: "mapping", message: "存在不完整的列映射（缺少源列或目标字段）" });
+    }
+
+    // Mapping: 缺少必填字段
+    const mappedTargetFields = config.columns.map((c) => c.targetField).filter(Boolean);
+    const requiredFields = ["sku_code", "sku_name", "sku_qty"];
+    const missingRequired = requiredFields.filter((f) => !mappedTargetFields.includes(f));
+    if (missingRequired.length > 0 && config.columns.length > 0) {
+      const fieldLabels: Record<string, string> = {
+        sku_code: "SKU物品编码",
+        sku_name: "SKU物品名称",
+        sku_qty: "SKU发货数量",
+      };
+      list.push({
+        tab: "mapping",
+        message: `缺少必填字段映射: ${missingRequired.map((f) => fieldLabels[f] || f).join("、")}`,
+      });
+    }
+
+    // Steps: 多Sheet合并步骤但Sheet选择不是"全部合并"
+    if (
+      config.steps.some((s) => s.type === "multi_sheet_merge") &&
+      config.sheets !== "all"
+    ) {
+      list.push({
+        tab: "steps",
+        message: "「多Sheet合并」后处理步骤建议配合「全部合并」Sheet选择使用",
+      });
+    }
+
+    // Steps: 矩阵转置但与列映射不兼容
+    if (
+      config.steps.some((s) => s.type === "transpose_matrix") &&
+      config.columns.length > 0
+    ) {
+      list.push({
+        tab: "steps",
+        message: "「矩阵转置」后处理步骤与列映射同时使用时可能导致数据异常",
+      });
+    }
+
+    return list;
+  }, [name, config]);
+
+  const anomaliesByTab = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const a of anomalies) {
+      if (!map[a.tab]) map[a.tab] = [];
+      map[a.tab].push(a.message);
+    }
+    return map;
+  }, [anomalies]);
 
   const thStyle: React.CSSProperties = {
     padding: "8px 10px",
@@ -331,11 +399,22 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
   };
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: "basic", label: "基本信息" },
-    { key: "mapping", label: "列映射" },
-    { key: "steps", label: "后处理" },
-    { key: "preview", label: "试解析" },
+    { key: "basic" as Tab, label: "基本信息" },
+    { key: "mapping" as Tab, label: "列映射" },
+    ...(mode === "advanced" ? [
+      { key: "steps" as Tab, label: "后处理" },
+      { key: "preview" as Tab, label: "试解析" },
+    ] : []),
   ];
+
+  // 切换模式时，如果当前 Tab 在简单模式下不可见，切回 basic
+  const handleModeToggle = () => {
+    const newMode = mode === "simple" ? "advanced" : "simple";
+    setMode(newMode);
+    if (newMode === "simple" && (activeTab === "steps" || activeTab === "preview")) {
+      setActiveTab("basic");
+    }
+  };
 
   return (
     <div
@@ -363,7 +442,54 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
             配置文件的解析方式和字段映射
           </div>
         </div>
-        <button className="btn btn-sm btn-ghost" onClick={onCancel}>✕</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* 简单/高级模式切换 */}
+          <div
+            style={{
+              display: "flex",
+              background: "var(--bg-dark)",
+              borderRadius: 4,
+              padding: 2,
+              fontSize: 12,
+            }}
+          >
+            <button
+              onClick={handleModeToggle}
+              style={{
+                padding: "4px 10px",
+                border: "none",
+                borderRadius: 3,
+                background: mode === "simple" ? "#fff" : "transparent",
+                color: mode === "simple" ? "var(--ztocc-primary)" : "var(--text-secondary)",
+                fontWeight: mode === "simple" ? 600 : 400,
+                cursor: "pointer",
+                fontSize: 12,
+                boxShadow: mode === "simple" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                transition: "all 0.15s",
+              }}
+            >
+              简单模式
+            </button>
+            <button
+              onClick={handleModeToggle}
+              style={{
+                padding: "4px 10px",
+                border: "none",
+                borderRadius: 3,
+                background: mode === "advanced" ? "#fff" : "transparent",
+                color: mode === "advanced" ? "var(--ztocc-primary)" : "var(--text-secondary)",
+                fontWeight: mode === "advanced" ? 600 : 400,
+                cursor: "pointer",
+                fontSize: 12,
+                boxShadow: mode === "advanced" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                transition: "all 0.15s",
+              }}
+            >
+              高级模式
+            </button>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onCancel}>✕</button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -371,26 +497,54 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
         display: "flex",
         borderBottom: "1px solid var(--border-color)",
       }}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            style={{
-              flex: 1,
-              padding: "10px 16px",
-              border: "none",
-              background: activeTab === tab.key ? "var(--bg-card)" : "transparent",
-              color: activeTab === tab.key ? "var(--ztocc-primary)" : "var(--text-secondary)",
-              fontWeight: activeTab === tab.key ? 600 : 400,
-              fontSize: 13,
-              cursor: "pointer",
-              borderBottom: activeTab === tab.key ? "2px solid var(--ztocc-primary)" : "2px solid transparent",
-              transition: "all 0.2s",
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map((tab) => {
+          const tabAnomalies = anomaliesByTab[tab.key];
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                flex: 1,
+                padding: "10px 16px",
+                border: "none",
+                background: activeTab === tab.key ? "var(--bg-card)" : "transparent",
+                color: activeTab === tab.key ? "var(--ztocc-primary)" : "var(--text-secondary)",
+                fontWeight: activeTab === tab.key ? 600 : 400,
+                fontSize: 13,
+                cursor: "pointer",
+                borderBottom: activeTab === tab.key ? "2px solid var(--ztocc-primary)" : "2px solid transparent",
+                transition: "all 0.2s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              {tab.label}
+              {tabAnomalies && tabAnomalies.length > 0 && (
+                <span
+                  title={tabAnomalies.join("\n")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    background: "var(--ztocc-warning)",
+                    color: "#fff",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "0 5px",
+                    lineHeight: 1,
+                  }}
+                >
+                  {tabAnomalies.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Content */}
@@ -405,6 +559,26 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
         {/* Tab: Basic */}
         {activeTab === "basic" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {anomaliesByTab.basic && anomaliesByTab.basic.length > 0 && (
+              <div style={{
+                padding: "8px 12px",
+                background: "var(--warning-bg)",
+                border: "1px solid #fde68a",
+                borderRadius: 6,
+                fontSize: 13,
+                color: "var(--ztocc-warning)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span>⚠️</span>
+                <div>
+                  {anomaliesByTab.basic.map((msg, i) => (
+                    <div key={i}>{msg}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}>
                 规则名称 <span style={{ color: "var(--danger)" }}>*</span>
@@ -521,6 +695,27 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
         {/* Tab: Mapping */}
         {activeTab === "mapping" && (
           <div>
+            {anomaliesByTab.mapping && anomaliesByTab.mapping.length > 0 && (
+              <div style={{
+                padding: "8px 12px",
+                background: "var(--warning-bg)",
+                border: "1px solid #fde68a",
+                borderRadius: 6,
+                fontSize: 13,
+                color: "var(--ztocc-warning)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                marginBottom: 12,
+              }}>
+                <span style={{ marginTop: 1 }}>⚠️</span>
+                <div>
+                  {anomaliesByTab.mapping.map((msg, i) => (
+                    <div key={i}>{msg}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 配置源文件列与标准字段之间的映射关系
@@ -630,6 +825,27 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
         {/* Tab: Steps */}
         {activeTab === "steps" && (
           <div>
+            {anomaliesByTab.steps && anomaliesByTab.steps.length > 0 && (
+              <div style={{
+                padding: "8px 12px",
+                background: "var(--warning-bg)",
+                border: "1px solid #fde68a",
+                borderRadius: 6,
+                fontSize: 13,
+                color: "var(--ztocc-warning)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                marginBottom: 12,
+              }}>
+                <span style={{ marginTop: 1 }}>⚠️</span>
+                <div>
+                  {anomaliesByTab.steps.map((msg, i) => (
+                    <div key={i}>{msg}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 配置解析后的后处理步骤（按执行顺序）

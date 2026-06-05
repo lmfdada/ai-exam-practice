@@ -59,9 +59,9 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
       const json = await res.json();
 
       if (json.success) {
-        setOrders(json.data || []);
-        setTotal(json.pagination?.total || 0);
-        setPage(json.pagination?.page || 1);
+        setOrders(json.data?.orders || []);
+        setTotal(json.data?.total || 0);
+        setPage(json.data?.page || 1);
       }
     } catch {
     } finally {

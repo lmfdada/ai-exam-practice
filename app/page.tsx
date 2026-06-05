@@ -77,9 +77,6 @@ export default function Home() {
         {/* 顶部导航 */}
         <header className="top-header">
           <div className="top-header-title">导入下单</div>
-          <div className="top-header-nav">
-            <span className="top-header-nav-item active">导入下单</span>
-          </div>
           <div className="top-header-right">
             <span>管理员</span>
           </div>

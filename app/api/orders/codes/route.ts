@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/orders";
+import { safeGetDb } from "@/lib/orders";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const sql = safeGetDb();
+    if (!sql) {
+      return NextResponse.json({ success: true, data: [] });
+    }
     const rows = await sql.query(
       `SELECT DISTINCT external_code FROM orders WHERE external_code IS NOT NULL AND external_code != ''`,
       []

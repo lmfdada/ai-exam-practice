@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { ImportData } from "@/app/page";
 import RuleEditor from "./RuleEditor";
 import type { ParseRule } from "@/lib/rules";
@@ -18,13 +18,13 @@ interface Rule {
   isAiGenerated?: boolean;
 }
 
-type Step = "select" | "upload" | "mapping" | "generating";
+type Step = "upload" | "mapping";
 
 export default function OrderImport({ onImportComplete }: Props) {
-  const [step, setStep] = useState<Step>("select");
+  const [step, setStep] = useState<Step>("upload");
   const [rules, setRules] = useState<Rule[]>([]);
   const [selectedRule, setSelectedRule] = useState<Rule | null>(null);
-  const [rulesLoading, setRulesLoading] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -33,6 +33,10 @@ export default function OrderImport({ onImportComplete }: Props) {
   const [showRuleEditor, setShowRuleEditor] = useState(false);
   const [editingRule, setEditingRule] = useState<Partial<ParseRule> | undefined>(undefined);
   const [dragOver, setDragOver] = useState(false);
+  const [showRuleSelector, setShowRuleSelector] = useState(false);
+  const [rawPreviewHeaders, setRawPreviewHeaders] = useState<string[]>([]);
+  const [rawPreviewRows, setRawPreviewRows] = useState<string[][]>([]);
+  const [generating, setGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ===== 加载规则列表 =====
@@ -51,11 +55,26 @@ export default function OrderImport({ onImportComplete }: Props) {
     setRulesLoading(false);
   }, []);
 
-  // ===== 新建规则 =====
-  const handleNewRule = () => {
-    setEditingRule(undefined);
-    setShowRuleEditor(true);
-  };
+  // 页面加载时自动加载规则列表
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/rules")
+      .then((res) => res.json())
+      .then((json) => {
+        if (!cancelled && json.success) {
+          setRules(json.data || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("加载规则列表失败");
+      })
+      .finally(() => {
+        if (!cancelled) setRulesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ===== 编辑规则 =====
   const handleEditRule = (e: React.MouseEvent, rule: Rule) => {
@@ -92,7 +111,6 @@ export default function OrderImport({ onImportComplete }: Props) {
   const handleCopyRule = async (e: React.MouseEvent, rule: Rule) => {
     e.stopPropagation();
     try {
-      // 先获取完整规则详情
       const res = await fetch(`/api/rules?ruleId=${rule.id}`);
       const json = await res.json();
       if (!json.success || !json.data) {
@@ -101,7 +119,6 @@ export default function OrderImport({ onImportComplete }: Props) {
       }
 
       const ruleData = json.data;
-      // 创建副本（不传 ruleId 即为新建）
       const copyRes = await fetch("/api/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,9 +144,7 @@ export default function OrderImport({ onImportComplete }: Props) {
   const handleRuleSaved = (savedRule: ParseRule) => {
     setShowRuleEditor(false);
     setEditingRule(undefined);
-    // 刷新规则列表
     loadRules();
-    // 自动选中新保存的规则
     setSelectedRule({
       id: savedRule.id,
       name: savedRule.name,
@@ -140,73 +155,9 @@ export default function OrderImport({ onImportComplete }: Props) {
     });
   };
 
-  // ===== 选择已有规则 =====
-  const handleSelectRule = (rule: Rule) => {
-    setSelectedRule(rule);
-    setStep("upload");
-  };
-
-  // ===== AI 生成规则 =====
-  const handleAIGenerate = async () => {
-    setStep("generating");
-    setError("");
-
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".xlsx,.xls,.pdf,.docx,.csv,.txt";
-    input.onchange = async (e) => {
-      const f = (e.target as HTMLInputElement).files?.[0];
-      if (!f) { setStep("select"); return; }
-
-      setStep("generating");
-
-      const formData = new FormData();
-      formData.append("file", f);
-
-      try {
-        const res = await fetch("/api/rules/generate", {
-          method: "POST",
-          body: formData,
-        });
-        const json = await res.json();
-
-        if (json.success && json.data) {
-          const newRule: Rule = {
-            id: json.data.id || `ai_${Date.now()}`,
-            name: json.data.name || f.name,
-            description: json.data.description || "AI 自动生成",
-            fileTypes: json.data.fileTypes || ["xlsx"],
-            usedCount: 0,
-            isAiGenerated: true,
-          };
-
-          // 先选这个规则，再上传文件
-          setSelectedRule(newRule);
-          setStep("upload");
-          setFile(f);
-        } else {
-          setError(json.message || json.fallback?.message || "AI 生成规则失败");
-          setStep("select");
-        }
-      } catch (err) {
-        setError("AI 生成规则失败: " + String(err));
-        setStep("select");
-      }
-    };
-    input.click();
-  };
-
-  // ===== 手动上传文件（无规则或已有规则时） =====
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      setFile(f);
-      setError("");
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!file) { setError("请选择文件"); return; }
+  // ===== 上传并解析 =====
+  const doParse = useCallback(async (rule: Rule | null) => {
+    if (!file) return;
 
     setUploading(true);
     setUploadProgress(0);
@@ -215,8 +166,8 @@ export default function OrderImport({ onImportComplete }: Props) {
     const formData = new FormData();
     formData.append("file", file);
 
-    if (selectedRule) {
-      formData.append("rule", JSON.stringify(selectedRule));
+    if (rule) {
+      formData.append("rule", JSON.stringify(rule));
     }
 
     try {
@@ -241,8 +192,8 @@ export default function OrderImport({ onImportComplete }: Props) {
                   rowCount: d.rowCount || 0,
                   mapping: d.mapping || {},
                   fingerprint: d.fingerprint || "",
-                  method: selectedRule ? "rule" : "auto",
-                  ruleName: selectedRule?.name,
+                  method: rule ? "rule" : "auto",
+                  ruleName: rule?.name,
                 });
               } else {
                 reject(new Error(json.message || "解析失败"));
@@ -270,6 +221,122 @@ export default function OrderImport({ onImportComplete }: Props) {
     }
 
     setUploading(false);
+  }, [file]);
+
+  // ===== 文件选中后，先做一次无规则预览 =====
+  const doRawPreview = useCallback(async (f: File) => {
+    setRawPreviewHeaders([]);
+    setRawPreviewRows([]);
+
+    const formData = new FormData();
+    formData.append("file", f);
+
+    try {
+      const res = await fetch("/api/orders/import", { method: "POST", body: formData });
+      const json = await res.json();
+      if (json.success) {
+        setRawPreviewHeaders(json.data?.headers || []);
+        setRawPreviewRows((json.data?.rows || []).slice(0, 5));
+      }
+    } catch {
+      // 预览失败不影响整体流程
+    }
+  }, []);
+
+  // ===== 文件变更 =====
+  const handleFileSelected = (f: File) => {
+    const ext = f.name.split(".").pop()?.toLowerCase() || "";
+    if (!["xlsx", "xls", "pdf", "docx", "csv"].includes(ext)) {
+      setError("不支持的文件格式，请上传 .xlsx .xls .pdf .docx .csv 文件");
+      return;
+    }
+    setFile(f);
+    setError("");
+    setSelectedRule(null);
+    setShowRuleSelector(true);
+    doRawPreview(f);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) handleFileSelected(f);
+  };
+
+  // ===== 选择已有规则 =====
+  const handleSelectRule = async (rule: Rule) => {
+    // 先获取完整规则（含 config）
+    try {
+      const res = await fetch(`/api/rules?ruleId=${encodeURIComponent(rule.id)}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        setSelectedRule(json.data);
+        setShowRuleSelector(false);
+        doParse(json.data);
+        return;
+      }
+    } catch {
+      // 获取失败则回退到使用简化版规则
+    }
+    setSelectedRule(rule);
+    setShowRuleSelector(false);
+    doParse(rule);
+  };
+
+  // ===== AI 生成规则 =====
+  const handleAIGenerate = async () => {
+    if (!file) return;
+    setGenerating(true);
+    setError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/rules/generate", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+
+      if (json.success && json.data) {
+        const aiRuleData = json.data;
+        // 打开 RuleEditor 预填充 AI 规则
+        setEditingRule({
+          name: aiRuleData.name || file.name.replace(/\.[^.]+$/, ""),
+          description: aiRuleData.description || `AI 为「${file.name}」自动生成`,
+          fileTypes: aiRuleData.fileTypes || ["xlsx"],
+          config: aiRuleData.config,
+          isAiGenerated: true,
+        } as Partial<ParseRule>);
+        setShowRuleEditor(true);
+      } else {
+        // AI 失败时，至少打开一个带有文件提示的空编辑器
+        setEditingRule({
+          name: file.name.replace(/\.[^.]+$/, ""),
+          description: `适用于 ${file.name}`,
+          fileTypes: [file.name.split(".").pop() || "xlsx"] as ("xlsx" | "xls" | "docx" | "pdf")[],
+          config: { sheets: "auto", headerDetection: "auto", columns: [], steps: [] },
+        } as Partial<ParseRule>);
+        setShowRuleEditor(true);
+      }
+    } catch {
+      setEditingRule({
+        name: file.name.replace(/\.[^.]+$/, ""),
+        description: `适用于 ${file.name}`,
+        fileTypes: [file.name.split(".").pop() || "xlsx"] as ("xlsx" | "xls" | "docx" | "pdf")[],
+        config: { sheets: "auto", headerDetection: "auto", columns: [], steps: [] },
+      } as Partial<ParseRule>);
+      setShowRuleEditor(true);
+    }
+
+    setGenerating(false);
+  };
+
+  // ===== 自动解析（无规则） =====
+  const handleAutoParse = () => {
+    setSelectedRule(null);
+    setShowRuleSelector(false);
+    doParse(null);
   };
 
   // ===== 确认映射并完成导入 =====
@@ -288,147 +355,20 @@ export default function OrderImport({ onImportComplete }: Props) {
     });
   };
 
-  // ===== 渲染步骤 =====
-  const renderSelectStep = () => (
-    <div style={{ padding: 40 }}>
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <div style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
-          选择解析方式
-        </div>
-        <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>
-          选择一个已有的解析规则，或使用 AI 智能分析文件生成规则
-        </div>
-      </div>
+  // ===== 重新选择文件 =====
+  const handleResetFile = () => {
+    setFile(null);
+    setShowRuleSelector(false);
+    setSelectedRule(null);
+    setRawPreviewHeaders([]);
+    setRawPreviewRows([]);
+    setError("");
+    setParseResult(null);
+    setUploading(false);
+    setStep("upload");
+  };
 
-      {/* 规则列表 */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 12,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-            已有解析规则
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-sm btn-ghost" onClick={loadRules}>
-              刷新
-            </button>
-            <button className="btn btn-sm btn-primary" onClick={handleNewRule}>
-              + 新建规则
-            </button>
-          </div>
-        </div>
-
-        {rulesLoading ? (
-          <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
-            加载中...
-          </div>
-        ) : rules.length === 0 ? (
-          <div
-            className="card"
-            style={{
-              padding: 32,
-              textAlign: "center",
-              cursor: "pointer",
-              borderStyle: "dashed",
-            }}
-            onClick={loadRules}
-          >
-            <div style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 8 }}>
-              暂无保存的规则
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              点击加载或点击「+ 新建规则」创建新规则
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {rules.map((rule) => (
-              <div
-                key={rule.id}
-                className="card"
-                style={{
-                  padding: "12px 16px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  border: selectedRule?.id === rule.id
-                    ? "1px solid var(--primary)"
-                    : "1px solid var(--border-color)",
-                }}
-                onClick={() => handleSelectRule(rule)}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-                    {rule.name}
-                    {rule.isAiGenerated && (
-                      <span className="tag tag-cyan" style={{ marginLeft: 8, fontSize: 11 }}>
-                        AI
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                    {rule.description || rule.fileTypes.join(", ")}
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    已用 {rule.usedCount || 0} 次
-                  </span>
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    onClick={(e) => handleEditRule(e, rule)}
-                    title="编辑规则"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    onClick={(e) => handleCopyRule(e, rule)}
-                    title="复制规则"
-                  >
-                    复制
-                  </button>
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={(e) => handleDeleteRule(e, rule.id)}
-                    title="删除规则"
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 操作按钮 */}
-      <div style={{ display: "flex", gap: 12 }}>
-        <button
-          className="btn btn-primary"
-          onClick={handleAIGenerate}
-          style={{ flex: 1, height: 36 }}
-        >
-          AI 智能生成规则
-        </button>
-        <button
-          className="btn btn-secondary"
-          onClick={() => {
-            setSelectedRule(null);
-            setStep("upload");
-          }}
-          style={{ flex: 1, height: 36 }}
-        >
-          直接上传（自动解析）
-        </button>
-      </div>
-    </div>
-  );
-
+  // ===== 渲染：上传步骤（入口） =====
   const renderUploadStep = () => (
     <div style={{ padding: 40 }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -436,108 +376,43 @@ export default function OrderImport({ onImportComplete }: Props) {
           上传文件
         </div>
         <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>
-          {selectedRule
-            ? `使用规则「${selectedRule.name}」解析文件`
-            : "系统将自动检测文件结构并建立列映射"}
+          上传出库单文件，然后选择解析规则或自动解析
         </div>
       </div>
 
-      {/* 规则摘要 */}
-      {selectedRule && (
-        <div className="card" style={{
-          padding: "10px 16px",
-          marginBottom: 20,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          borderLeft: "3px solid var(--primary)",
-        }}>
-          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>当前规则：</span>
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-            {selectedRule.name}
-          </span>
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {selectedRule.description}
-          </span>
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => { setSelectedRule(null); setStep("select"); }}
-            style={{ marginLeft: "auto" }}
-          >
-            更换
-          </button>
-        </div>
-      )}
-
       {/* 文件上传区域 */}
-      <div
-        className="card"
-        style={{
-          padding: 40,
-          textAlign: "center",
-          borderStyle: "dashed",
-          cursor: "pointer",
-          borderColor: dragOver
-            ? "var(--ztocc-primary)"
-            : file
-              ? "var(--primary)"
-              : "var(--border-color)",
-          background: dragOver ? "rgba(0,185,185,0.04)" : "var(--bg-card)",
-          transition: "all 0.2s",
-        }}
-        onClick={() => !file && fileInputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(false);
-          const droppedFiles = e.dataTransfer.files;
-          if (droppedFiles.length > 0) {
-            const f = droppedFiles[0];
-            const ext = f.name.split(".").pop()?.toLowerCase() || "";
-            if (["xlsx", "xls", "pdf", "docx", "csv"].includes(ext)) {
-              setFile(f);
-              setError("");
-            } else {
-              setError("不支持的文件格式，请上传 .xlsx .xls .pdf .docx .csv 文件");
+      {!file && (
+        <div
+          className="card"
+          style={{
+            padding: 48,
+            textAlign: "center",
+            borderStyle: "dashed",
+            cursor: "pointer",
+            borderColor: dragOver ? "var(--ztocc-primary)" : "var(--border-color)",
+            background: dragOver ? "rgba(0,185,185,0.04)" : "var(--bg-card)",
+            transition: "all 0.2s",
+          }}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+          onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOver(false);
+            const droppedFiles = e.dataTransfer.files;
+            if (droppedFiles.length > 0) {
+              handleFileSelected(droppedFiles[0]);
             }
-          }
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls,.pdf,.docx,.csv"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
-
-        {file ? (
-          <div>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
-              {file.name}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>
-              {(file.size / 1024).toFixed(1)} KB
-            </div>
-            <button className="btn btn-sm btn-secondary" onClick={(e) => {
-              e.stopPropagation();
-              setFile(null);
-            }}>
-              重新选择
-            </button>
-          </div>
-        ) : (
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.pdf,.docx,.csv"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
           <div>
             <div style={{ fontSize: 40, marginBottom: 8, opacity: dragOver ? 1 : 0.4 }}>
               {dragOver ? "📥" : "📂"}
@@ -548,41 +423,271 @@ export default function OrderImport({ onImportComplete }: Props) {
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
               支持 .xlsx .xls .pdf .docx .csv 格式
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* 进度条 */}
-      {uploading && (
-        <div style={{ marginTop: 16 }}>
-          <div className="progress-bar">
-            <div className="progress-bar-fill" style={{ width: `${uploadProgress}%` }} />
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginTop: 4 }}>
-            解析中 {uploadProgress}%
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open("/api/templates?download=true", "_blank");
+                }}
+                style={{ fontSize: 12 }}
+              >
+                下载标准模板
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* 按钮 */}
-      <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-        <button className="btn btn-secondary" onClick={() => setStep("select")}>
-          返回
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={handleUpload}
-          disabled={!file || uploading}
-          style={{ flex: 1 }}
-        >
-          {uploading ? "解析中..." : "开始解析"}
-        </button>
-      </div>
+      {/* 已选择文件 */}
+      {file && (
+        <>
+          {/* 文件信息 */}
+          <div className="card" style={{
+            padding: "12px 16px",
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            borderLeft: "3px solid var(--primary)",
+          }}>
+            <span style={{ fontSize: 28 }}>📄</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+                {file.name}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                {(file.size / 1024).toFixed(1)} KB · {file.name.split(".").pop()?.toUpperCase()}
+              </div>
+            </div>
+            <button className="btn btn-sm btn-ghost" onClick={handleResetFile}>
+              重新选择
+            </button>
+          </div>
 
-      {error && <div className="msg-bubble error" style={{ marginTop: 12 }}>{error}</div>}
+          {/* 原始数据预览 */}
+          {rawPreviewHeaders.length > 0 && (
+            <div className="card" style={{ padding: "12px 16px", marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 8 }}>
+                文件数据预览（前 5 行）
+              </div>
+              <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--ztocc-table-border)", borderRadius: 4 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      {rawPreviewHeaders.map((h, i) => (
+                        <th key={i} style={{
+                          padding: "6px 10px",
+                          background: "#fafafa",
+                          fontWeight: 600,
+                          borderBottom: "1px solid var(--ztocc-table-border)",
+                          whiteSpace: "nowrap",
+                          textAlign: "left",
+                          fontSize: 12,
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rawPreviewRows.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} style={{
+                            padding: "4px 10px",
+                            borderBottom: "1px solid #f0f0f0",
+                            whiteSpace: "nowrap",
+                            maxWidth: 200,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}>{cell || "-"}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 规则选择区域 */}
+          {showRuleSelector && !uploading && (
+            <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 16 }}>
+                选择解析方式
+              </div>
+
+              {/* 已有规则列表 */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                    已有解析规则
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn btn-sm btn-ghost" onClick={loadRules} style={{ fontSize: 12 }}>
+                      刷新
+                    </button>
+                  </div>
+                </div>
+
+                {rulesLoading ? (
+                  <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                    加载中...
+                  </div>
+                ) : rules.length === 0 ? (
+                  <div style={{
+                    padding: 16,
+                    textAlign: "center",
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    border: "1px dashed var(--border-color)",
+                    borderRadius: 6,
+                  }}>
+                    暂无保存的规则
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflow: "auto" }}>
+                    {rules.map((rule) => (
+                      <div
+                        key={rule.id}
+                        className="card"
+                        style={{
+                          padding: "10px 14px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          border: selectedRule?.id === rule.id
+                            ? "1px solid var(--primary)"
+                            : "1px solid var(--border-color)",
+                        }}
+                        onClick={() => handleSelectRule(rule)}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                            {rule.name}
+                            {rule.isAiGenerated && (
+                              <span className="tag tag-cyan" style={{ marginLeft: 6, fontSize: 10 }}>AI</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>
+                            {rule.description || rule.fileTypes.join(", ")}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <button className="btn btn-sm btn-ghost" onClick={(e) => handleEditRule(e, rule)} style={{ fontSize: 11, padding: "2px 6px" }}>
+                            编辑
+                          </button>
+                          <button className="btn btn-sm btn-ghost" onClick={(e) => handleCopyRule(e, rule)} style={{ fontSize: 11, padding: "2px 6px" }}>
+                            复制
+                          </button>
+                          <button className="btn btn-sm btn-danger" onClick={(e) => handleDeleteRule(e, rule.id)} style={{ fontSize: 11, padding: "2px 6px" }}>
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 操作按钮 */}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleAIGenerate}
+                  disabled={generating}
+                  style={{ flex: 1, height: 36 }}
+                >
+                  {generating ? "AI 分析中..." : "AI 新建规则"}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleAutoParse}
+                  style={{ flex: 1, height: 36 }}
+                >
+                  自动解析（无规则）
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 进度条 */}
+          {uploading && (
+            <div style={{ marginTop: 16 }}>
+              <div className="progress-bar">
+                <div className="progress-bar-fill" style={{ width: `${uploadProgress}%` }} />
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginTop: 4 }}>
+                解析中 {uploadProgress}%
+              </div>
+            </div>
+          )}
+
+          {/* 错误提示 */}
+          {error && (
+            <div style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 6,
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              fontSize: 13,
+              color: "#dc2626",
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>解析失败</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>文件：</span>
+                  {file?.name || "-"}（{(file ? (file.size / 1024).toFixed(1) : "-")} KB）
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>格式：</span>
+                  {file?.name?.split(".").pop()?.toUpperCase() || "-"}
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>原因：</span>
+                  {error}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => {
+                    setError("");
+                    if (file) {
+                      setEditingRule({
+                        name: file.name.replace(/\.[^.]+$/, ""),
+                        description: `适用于 ${file.name}`,
+                        fileTypes: [file.name.split(".").pop() || "xlsx"] as ("xlsx" | "xls" | "docx" | "pdf")[],
+                        config: { sheets: "auto" as const, headerDetection: "auto" as const, columns: [], steps: [] },
+                        isAiGenerated: false,
+                      } as Partial<ParseRule>);
+                      setShowRuleEditor(true);
+                    }
+                  }}
+                >
+                  手动配置规则
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={handleResetFile}
+                >
+                  重新选择
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 
+  // ===== 渲染：映射步骤 =====
   const renderMappingStep = () => {
     if (!parseResult) return null;
     const { headers, mapping, rowCount } = parseResult;
@@ -613,6 +718,11 @@ export default function OrderImport({ onImportComplete }: Props) {
                 规则: {parseResult.ruleName}
               </span>
             )}
+            {selectedRule?.isAiGenerated && (
+              <span className="tag tag-cyan" style={{ marginLeft: 4 }}>
+                AI 生成
+              </span>
+            )}
           </div>
         </div>
 
@@ -631,7 +741,25 @@ export default function OrderImport({ onImportComplete }: Props) {
               {headers.map((header, i) => (
                 <tr key={i}>
                   <td style={{ color: "var(--text-muted)" }}>{i + 1}</td>
-                  <td style={{ fontWeight: 500 }}>{header}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    {header}
+                    {selectedRule?.isAiGenerated && (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        marginLeft: 6,
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: "rgba(0,185,185,0.12)",
+                        color: "var(--ztocc-primary)",
+                        lineHeight: "1.4",
+                      }}>
+                        AI
+                      </span>
+                    )}
+                  </td>
                   <td style={{ color: "var(--text-secondary)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {parseResult.rows[0]?.[i] || "-"}
                   </td>
@@ -684,14 +812,13 @@ export default function OrderImport({ onImportComplete }: Props) {
 
         {/* 按钮 */}
         <div style={{ display: "flex", gap: 12 }}>
-          <button className="btn btn-secondary" onClick={() => setStep("upload")}>
-            重新上传
+          <button className="btn btn-secondary" onClick={() => { setStep("upload"); setShowRuleSelector(true); }}>
+            返回
           </button>
           {selectedRule?.isAiGenerated && (
             <button
               className="btn btn-secondary"
               onClick={async () => {
-                // 从 selectedRule 获取 AI 生成的规则信息并保存
                 try {
                   const res = await fetch("/api/rules", {
                     method: "POST",
@@ -733,7 +860,7 @@ export default function OrderImport({ onImportComplete }: Props) {
             onClick={handleConfirmMapping}
             style={{ flex: 1 }}
           >
-            确认导入({rowCount}行)
+            确认导入（{rowCount}行）
           </button>
         </div>
 
@@ -742,32 +869,9 @@ export default function OrderImport({ onImportComplete }: Props) {
     );
   };
 
-  const renderGeneratingStep = () => (
-    <div style={{ padding: 60, textAlign: "center" }}>
-      <div style={{
-        width: 48,
-        height: 48,
-        borderRadius: "50%",
-        border: "3px solid var(--border-color)",
-        borderTopColor: "var(--primary)",
-        animation: "spin 0.8s linear infinite",
-        margin: "0 auto 16px",
-      }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <div style={{ fontSize: 16, color: "var(--text-primary)", marginBottom: 4 }}>
-        AI 正在分析文件结构...
-      </div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        大模型正在解析文件内容，自动生成解析规则
-      </div>
-    </div>
-  );
-
   return (
     <>
       <div className="animate-fadeIn" style={{ display: showRuleEditor ? "none" : "block" }}>
-        {step === "select" && renderSelectStep()}
-        {step === "generating" && renderGeneratingStep()}
         {step === "upload" && renderUploadStep()}
         {step === "mapping" && renderMappingStep()}
       </div>
@@ -784,12 +888,7 @@ export default function OrderImport({ onImportComplete }: Props) {
           justifyContent: "center",
           padding: 20,
         }}>
-          <div style={{
-            width: "100%",
-            maxWidth: 680,
-            maxHeight: "90vh",
-            overflow: "auto",
-          }}>
+          <div style={{ width: "100%", maxWidth: 680, maxHeight: "90vh", overflow: "auto" }}>
             <RuleEditor
               rule={editingRule}
               onSave={handleRuleSaved}

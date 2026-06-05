@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/orders";
+import { safeGetDb } from "@/lib/orders";
 import { generateRuleId } from "@/lib/rules";
 
 /** GET: 获取规则列表或单个规则 */
 export async function GET(request: NextRequest) {
   try {
-    const sql = getDb();
+    const sql = safeGetDb();
+    if (!sql) {
+      return NextResponse.json({ success: true, data: [] });
+    }
     const { searchParams } = new URL(request.url);
     const ruleId = searchParams.get("ruleId");
 
@@ -35,7 +38,13 @@ export async function GET(request: NextRequest) {
 /** POST: 创建或更新规则 */
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const sql = safeGetDb();
+    if (!sql) {
+      return NextResponse.json(
+        { success: false, message: "数据库未连接，无法保存规则" },
+        { status: 503 }
+      );
+    }
     const body = await request.json();
     const { ruleId, name, description, fileTypes, config } = body;
 
@@ -78,7 +87,13 @@ export async function POST(request: NextRequest) {
 /** DELETE: 删除规则 */
 export async function DELETE(request: NextRequest) {
   try {
-    const sql = getDb();
+    const sql = safeGetDb();
+    if (!sql) {
+      return NextResponse.json(
+        { success: false, message: "数据库未连接，无法删除规则" },
+        { status: 503 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const ruleId = searchParams.get("ruleId");
 

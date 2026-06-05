@@ -363,6 +363,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "文件大小超过 10MB 限制" }, { status: 400 });
     }
 
+    // 空文件检测
+    if (file.size === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "上传的文件为空（0 字节），请检查文件是否正确",
+      }, { status: 400 });
+    }
+
     const nameLower = file.name.toLowerCase();
     const ext = nameLower.slice(nameLower.lastIndexOf("."));
     if (!ALLOWED_EXTS.includes(ext)) {
@@ -372,13 +380,44 @@ export async function POST(request: NextRequest) {
     let rule: ParseRule | undefined;
     if (ruleJson) {
       try {
-        rule = JSON.parse(ruleJson) as ParseRule;
+        const parsed = JSON.parse(ruleJson) as Partial<ParseRule>;
+        // 前端发送的 Rule 对象缺少 config，补充默认值
+        rule = {
+          id: parsed.id || "",
+          name: parsed.name || "",
+          description: parsed.description || "",
+          createdAt: parsed.createdAt || new Date().toISOString(),
+          updatedAt: parsed.updatedAt || new Date().toISOString(),
+          fileTypes: parsed.fileTypes || ["xlsx"],
+          config: parsed.config || {
+            sheets: "auto" as const,
+            headerDetection: "auto" as const,
+            columns: [],
+            steps: [],
+          },
+        };
       } catch {
         // 规则解析失败，忽略
       }
     }
 
     const buffer = await file.arrayBuffer();
+
+    // ===== 通用编码异常检测 =====
+    // 检查空 buffer 或极小 buffer（文件内容几乎不存在）
+    if (!buffer || buffer.byteLength === 0) {
+      return NextResponse.json({
+        success: false,
+        message: `文件「${file.name}」内容为空（无法读取任何字节），文件可能已损坏或格式不正确`,
+      }, { status: 400 });
+    }
+
+    // 对于文本类文件，检查是否包含常见编码 BOM 标识
+    const headerBytes = new Uint8Array(buffer.slice(0, Math.min(4, buffer.byteLength)));
+    const hasBOM = headerBytes[0] === 0xEF && headerBytes[1] === 0xBB && headerBytes[2] === 0xBF; // UTF-8 BOM
+    if (hasBOM) {
+      console.debug(`[import] 文件 ${file.name} 包含 UTF-8 BOM，已自动处理`);
+    }
 
     // ===== 按格式解析 =====
     let allHeaders: string[] = [];
@@ -441,8 +480,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (allDataRows.length === 0) {
-      return NextResponse.json({ success: false, message: "未能从文件中提取到有效数据" }, { status: 400 });
+      const formatLabel = ext === ".xlsx" || ext === ".xls" ? "Excel"
+        : ext === ".docx" ? "Word"
+        : ext === ".pdf" ? "PDF"
+        : "文件";
+      return NextResponse.json({
+        success: false,
+        message: `未能从${formatLabel}文件「${file.name}」中提取到有效数据行。可能原因：\
+1) 文件使用了非标准表格格式；2) 文件为空或只包含合并单元格/图片；3) 文件编码异常（请尝试重新导出为 .xlsx 格式）`,
+      }, { status: 400 });
     }
+
+    // ===== 将 rows 从对象数组转为二维数组（前端 ImportData 要求 string[][]） =====
+    const rowsAsArrays: string[][] = allDataRows.map((row) =>
+      allHeaders.map((h) => row[h] || "")
+    );
 
     // ===== 自动列映射 =====
     let mapping: Record<string, string>;
@@ -459,7 +511,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         headers: allHeaders,
-        rows: allDataRows.slice(0, 200),
+        rows: rowsAsArrays.slice(0, 200),
         rowCount,
         mapping,
         fingerprint,
@@ -468,7 +520,29 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("导入解析失败:", error);
-    const message = error instanceof Error ? error.message : "解析失败";
+
+    let message = error instanceof Error ? error.message : "解析失败";
+
+    // 编码/格式异常检测
+    const errorStr = String(error);
+    if (errorStr.includes("encoding") || errorStr.includes("Encoding") ||
+        errorStr.includes("charset") || errorStr.includes("iconv") ||
+        errorStr.includes("decode")) {
+      message = `文件编码异常，请尝试重新导出为 .xlsx 格式后再上传（原始错误: ${message}）`;
+    } else if (
+      errorStr.includes("corrupt") || errorStr.includes("corrupted") ||
+      errorStr.includes("invalid") || errorStr.includes("bad") ||
+      errorStr.includes("损坏") || errorStr.includes("格式错误") ||
+      errorStr.includes("not a") || errorStr.includes("unexpected")
+    ) {
+      message = `文件可能已损坏或格式不正确，请检查文件后重新导出（原始错误: ${message}）`;
+    } else if (
+      errorStr.includes("password") || errorStr.includes("protected") ||
+      errorStr.includes("加密") || errorStr.includes("密码")
+    ) {
+      message = `文件已被加密/保护，请先解密后再上传（原始错误: ${message}）`;
+    }
+
     return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }

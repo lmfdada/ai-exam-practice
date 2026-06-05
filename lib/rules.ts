@@ -192,6 +192,12 @@ function applyPostProcessors(
       case "static_value":
         result = applyStaticValue(result, step.config);
         break;
+      case "multi_sheet_merge":
+        result = applyMultiSheetMerge(result, context, step.config);
+        break;
+      case "card_split":
+        result = applyCardSplit(result, context, step.config);
+        break;
       case "regex_extract":
         result = applyRegexExtract(result, step.config);
         break;
@@ -446,6 +452,193 @@ function applyFillFromSourceName(
   if (!sourceName) return rows;
 
   return rows.map((row) => ({ ...row, [targetField]: sourceName }));
+}
+
+/**
+ * multi_sheet_merge: 多 Sheet 合并
+ * 为每一行标记来源 Sheet 名，多 Sheet 数据已在 API 层合并
+ * 适用场景：一个 Excel 文件有多个结构相同的 Sheet（如按门店分页）
+ */
+function applyMultiSheetMerge(
+  rows: Record<string, string>[],
+  context: ParseContext,
+  config: Record<string, unknown>
+): Record<string, string>[] {
+  // 如果已有 store 字段不为空，不覆盖（优先使用原始数据）
+  const targetField = (config.targetField as string) || "receiver_store";
+  const sourceName = context.sourceName || "";
+
+  if (!sourceName) return rows;
+
+  return rows.map((row) => {
+    // 仅当目标字段为空时才填充 Sheet 名
+    if (!row[targetField] || row[targetField].trim() === "") {
+      return { ...row, [targetField]: sourceName };
+    }
+    return row;
+  });
+}
+
+/**
+ * card_split: 卡片式拆分
+ * 适用场景：一张 Sheet 中有多个卡片结构（如多张调拨单连续排列），
+ * 每个卡片有各自的卡片头信息（调入门店、收货人等）和明细表格。
+ * 此处理器会检测卡片边界，并将卡片头信息按行拆分应用到各自的明细行。
+ *
+ * 配置示例：
+ *   {
+ *     cardKeyword: "单号",           // 检测卡片边界的关键词（默认 "单号"）
+ *     fieldSource: [                // 卡片头字段提取配置（与 extract_header_fields 相同）
+ *       { field: "receiver_store", keyword: "调入门店", rowOffset: -N }
+ *     ]
+ *   }
+ */
+function applyCardSplit(
+  rows: Record<string, string>[],
+  context: ParseContext,
+  config: Record<string, unknown>
+): Record<string, string>[] {
+  const fullRows = context.fullRows || [];
+  if (fullRows.length === 0) return rows;
+
+  // 检测卡片边界的关键词
+  const cardKeyword = (config.cardKeyword as string) || "单号";
+  const cardKeywords = (config.cardKeywords as string[]) || [cardKeyword, "单据编号"];
+
+  // ----- 在 fullRows 中查找卡片边界行 -----
+  const cardBoundaries: number[] = [];
+
+  // 先找表头行（列名行），卡片边界应在表头行之前
+  const KNOWN_HEADER_KEYWORDS = [
+    "编码", "名称", "数量", "门店", "地址", "电话", "手机", "姓名",
+    "SKU", "规格", "备注", "单号", "订单", "配送", "收货",
+    "序号", "编号", "货号", "品名", "物料", "仓库",
+  ];
+
+  // 找表头行索引
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(fullRows.length, 30); i++) {
+    let score = 0;
+    for (const cell of fullRows[i]) {
+      const s = String(cell || "").trim();
+      if (s.length > 15) continue;
+      for (const kw of KNOWN_HEADER_KEYWORDS) {
+        if (s.includes(kw)) { score++; break; }
+      }
+    }
+    if (score >= 3) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  if (headerRowIdx < 0) headerRowIdx = 2; // fallback
+
+  // 在表头行之前的行中检测卡片边界
+  for (let i = 0; i < headerRowIdx; i++) {
+    const row = fullRows[i];
+    if (!row || row.length === 0) continue;
+    const text = row.join(" ").trim();
+    if (!text || text.length > 100) continue;
+    // 包含卡片关键词即为卡片起点
+    if (cardKeywords.some((kw) => text.includes(kw))) {
+      cardBoundaries.push(i);
+    }
+  }
+
+  // 如果无卡片边界或只有一个卡片，无需拆分
+  if (cardBoundaries.length <= 1) return rows;
+
+  // ----- 提取每个卡片的头信息 -----
+  const fieldSource = config.fieldSource as
+    Array<{ field: string; rowOffset: number; colIndex?: number; keyword?: string }> | undefined;
+
+  // 默认的卡片头提取配置：尝试提取常见字段
+  const defaultFieldSource: Array<{ field: string; rowOffset: number; colIndex?: number; keyword?: string }> = [
+    { field: "receiver_store", keyword: "调入门店", rowOffset: -1 },
+    { field: "receiver_store", keyword: "收货门店", rowOffset: -1 },
+    { field: "receiver_name", keyword: "收货人", rowOffset: -1 },
+    { field: "receiver_phone", keyword: "电话", rowOffset: -1 },
+    { field: "receiver_phone", keyword: "手机", rowOffset: -1 },
+    { field: "receiver_address", keyword: "地址", rowOffset: -1 },
+    { field: "receiver_address", keyword: "收货地址", rowOffset: -1 },
+  ];
+
+  const fsList = fieldSource && fieldSource.length > 0 ? fieldSource : defaultFieldSource;
+
+  // 为每个卡片提取头信息
+  const cardHeaders: { startRow: number; endRow: number; fields: Record<string, string> }[] = [];
+
+  for (let ci = 0; ci < cardBoundaries.length; ci++) {
+    const cardStart = cardBoundaries[ci];
+    const cardEnd =
+      ci < cardBoundaries.length - 1
+        ? cardBoundaries[ci + 1]
+        : fullRows.length;
+
+    const fields: Record<string, string> = {};
+
+    // 在卡片范围内提取字段
+    for (const fs of fsList) {
+      const targetRowIdx = cardStart + Math.abs(fs.rowOffset);
+      if (targetRowIdx < cardStart || targetRowIdx >= cardEnd) continue;
+      const targetRow = fullRows[targetRowIdx];
+      if (!targetRow) continue;
+
+      if (fs.keyword) {
+        // 按关键词查找：找到包含关键词的单元格，下一个单元格即为值
+        for (let cj = 0; cj < targetRow.length - 1; cj++) {
+          if (String(targetRow[cj] || "").includes(fs.keyword)) {
+            const val = String(targetRow[cj + 1] || "").trim();
+            if (val && !fields[fs.field]) {
+              fields[fs.field] = val;
+            }
+            break;
+          }
+        }
+      } else if (fs.colIndex !== undefined) {
+        const val = String(targetRow[fs.colIndex] || "").trim();
+        if (val) fields[fs.field] = val;
+      }
+    }
+
+    cardHeaders.push({
+      startRow: cardStart,
+      endRow: cardEnd,
+      fields,
+    });
+  }
+
+  // ----- 将卡片头信息应用到对应的数据行 -----
+  // 我们需要根据行号将 mapped rows 分配到各个卡片
+  // 由于 column mapping 已经改变了数据结构，我们通过源行号来匹配
+  // 简化方案：均匀分配。假设第一个卡片的行在 mapped rows 的前 N/len(cards) 部分
+  // 更精确的方案需要 fullRows 与 mapped rows 的行对应关系
+
+  // 简化的分配方案：将 mapped rows 按卡片边界比例切分
+  if (cardHeaders.length === 0) return rows;
+
+  const totalCardRows = rows.length;
+  const result: Record<string, string>[] = [];
+
+  for (let ci = 0; ci < cardHeaders.length; ci++) {
+    const fields = cardHeaders[ci].fields;
+    if (Object.keys(fields).length === 0) continue;
+
+    // 计算此卡片应分到的行数范围
+    const startIdx = Math.floor(
+      (ci / cardHeaders.length) * totalCardRows
+    );
+    const endIdx = Math.floor(
+      ((ci + 1) / cardHeaders.length) * totalCardRows
+    );
+
+    // 将卡片头信息应用到该分片的所有行
+    for (let ri = startIdx; ri < endIdx && ri < rows.length; ri++) {
+      result.push({ ...rows[ri], ...fields });
+    }
+  }
+
+  return result.length > 0 ? result : rows;
 }
 
 // ===== 工具函数 =====
