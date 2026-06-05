@@ -1,70 +1,63 @@
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { getDb } from "@/lib/db";
+
+const CREATE_TABLES_SQL = `
+CREATE TABLE IF NOT EXISTS orders (
+  id SERIAL PRIMARY KEY,
+  external_code TEXT DEFAULT '',
+  receiver_store TEXT DEFAULT '',
+  receiver_name TEXT DEFAULT '',
+  receiver_phone TEXT DEFAULT '',
+  receiver_address TEXT DEFAULT '',
+  sku_code TEXT NOT NULL DEFAULT '',
+  sku_name TEXT NOT NULL DEFAULT '',
+  sku_qty REAL NOT NULL DEFAULT 0,
+  sku_spec TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  batch_id TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS parse_rules (
+  id SERIAL PRIMARY KEY,
+  rule_id TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  file_types TEXT DEFAULT '["xlsx"]',
+  config TEXT NOT NULL DEFAULT '{}',
+  is_ai_generated INTEGER DEFAULT 0,
+  used_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_external_code ON orders(external_code);
+CREATE INDEX IF NOT EXISTS idx_orders_batch_id ON orders(batch_id);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_parse_rules_rule_id ON parse_rules(rule_id);
+`;
 
 export async function GET() {
   try {
-    const dbDir = path.join(process.cwd(), "data");
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
-
-    const dbPath = path.join(dbDir, "app.db");
-    // 关闭已有连接，删除重建
-    const db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
+    const sql = getDb();
 
     // 删除旧表
-    db.exec(`DROP TABLE IF EXISTS orders`);
-    db.exec(`DROP TABLE IF EXISTS parse_rules`);
+    await sql.query(`DROP TABLE IF EXISTS orders`);
+    await sql.query(`DROP TABLE IF EXISTS parse_rules`);
 
-    // 建表 - orders
-    db.exec(`
-      CREATE TABLE orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        external_code TEXT DEFAULT '',
-        receiver_store TEXT DEFAULT '',
-        receiver_name TEXT DEFAULT '',
-        receiver_phone TEXT DEFAULT '',
-        receiver_address TEXT DEFAULT '',
-        sku_code TEXT NOT NULL DEFAULT '',
-        sku_name TEXT NOT NULL DEFAULT '',
-        sku_qty REAL NOT NULL DEFAULT 0,
-        sku_spec TEXT DEFAULT '',
-        remark TEXT DEFAULT '',
-        batch_id TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now'))
-      )
-    `);
+    // 重建表
+    const statements = CREATE_TABLES_SQL
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
-    // 建表 - parse_rules
-    db.exec(`
-      CREATE TABLE parse_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        rule_id TEXT NOT NULL UNIQUE,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        file_types TEXT DEFAULT '["xlsx"]',
-        config TEXT NOT NULL DEFAULT '{}',
-        is_ai_generated INTEGER DEFAULT 0,
-        used_count INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `);
-
-    // 索引
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_external_code ON orders(external_code)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_batch_id ON orders(batch_id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_parse_rules_rule_id ON parse_rules(rule_id)`);
-
-    db.close();
+    for (const stmt of statements) {
+      await sql.query(stmt + ";", []);
+    }
 
     return NextResponse.json({
       success: true,
-      message: "✅ SQLite 数据库初始化成功！orders + parse_rules 已重建。",
+      message: `✅ 数据库初始化成功！${process.env.DATABASE_URL ? "PostgreSQL" : "SQLite"} 模式，orders + parse_rules 已重建。`,
     });
   } catch (error) {
     console.error("建表失败:", error);
