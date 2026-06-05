@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/orders";
+import { getDb } from "@/lib/db";
 import ExcelJS from "exceljs";
 
 export async function GET(request: NextRequest) {

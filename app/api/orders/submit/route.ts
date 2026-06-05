@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, buildOrderRow, validateRow } from "@/lib/orders";
+import { getDb } from "@/lib/db";
+import { buildOrderRow, validateRow } from "@/lib/orders";
 
 const MAX_ROWS_PER_REQUEST = 200;
 const MAX_TOTAL_ROWS = 10000;

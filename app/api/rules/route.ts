@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { safeGetDb } from "@/lib/orders";
+import { safeGetDb } from "@/lib/db";
 import { generateRuleId } from "@/lib/rules";
 
 /** GET: 获取规则列表或单个规则 */

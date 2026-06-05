@@ -1,64 +1,70 @@
 import { NextResponse } from "next/server";
-import { neon } from "@neondatabase/serverless";
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
 
 export async function GET() {
   try {
-    const sql = neon(process.env.DATABASE_URL!);
+    const dbDir = path.join(process.cwd(), "data");
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
 
-    // 删除旧表重建
-    await sql`DROP TABLE IF EXISTS orders, template_mappings, parse_rules`;
+    const dbPath = path.join(dbDir, "app.db");
+    // 关闭已有连接，删除重建
+    const db = new Database(dbPath);
+    db.pragma("journal_mode = WAL");
 
-    // 新 orders 表：SKU 模式
-    await sql`
+    // 删除旧表
+    db.exec(`DROP TABLE IF EXISTS orders`);
+    db.exec(`DROP TABLE IF EXISTS parse_rules`);
+
+    // 建表 - orders
+    db.exec(`
       CREATE TABLE orders (
-        id SERIAL PRIMARY KEY,
-        external_code VARCHAR(200) DEFAULT '',
-        receiver_store VARCHAR(200) DEFAULT '',
-        receiver_name VARCHAR(100) DEFAULT '',
-        receiver_phone VARCHAR(50) DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        external_code TEXT DEFAULT '',
+        receiver_store TEXT DEFAULT '',
+        receiver_name TEXT DEFAULT '',
+        receiver_phone TEXT DEFAULT '',
         receiver_address TEXT DEFAULT '',
-        sku_code VARCHAR(200) NOT NULL DEFAULT '',
-        sku_name VARCHAR(500) NOT NULL DEFAULT '',
-        sku_qty DECIMAL(10,2) NOT NULL DEFAULT 0,
-        sku_spec VARCHAR(200) DEFAULT '',
+        sku_code TEXT NOT NULL DEFAULT '',
+        sku_name TEXT NOT NULL DEFAULT '',
+        sku_qty REAL NOT NULL DEFAULT 0,
+        sku_spec TEXT DEFAULT '',
         remark TEXT DEFAULT '',
-        batch_id VARCHAR(50) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
+        batch_id TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
       )
-    `;
+    `);
 
-    // 解析规则表
-    await sql`
+    // 建表 - parse_rules
+    db.exec(`
       CREATE TABLE parse_rules (
-        id SERIAL PRIMARY KEY,
-        rule_id VARCHAR(100) NOT NULL UNIQUE,
-        name VARCHAR(200) NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
         description TEXT DEFAULT '',
-        file_types TEXT[] DEFAULT '{"xlsx"}',
-        config JSONB NOT NULL DEFAULT '{}',
-        is_ai_generated BOOLEAN DEFAULT false,
+        file_types TEXT DEFAULT '["xlsx"]',
+        config TEXT NOT NULL DEFAULT '{}',
+        is_ai_generated INTEGER DEFAULT 0,
         used_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
       )
-    `;
+    `);
 
-    await sql`
-      CREATE INDEX idx_orders_external_code ON orders(external_code)
-    `;
-    await sql`
-      CREATE INDEX idx_orders_batch_id ON orders(batch_id)
-    `;
-    await sql`
-      CREATE INDEX idx_orders_created_at ON orders(created_at)
-    `;
-    await sql`
-      CREATE INDEX idx_parse_rules_rule_id ON parse_rules(rule_id)
-    `;
+    // 索引
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_external_code ON orders(external_code)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_batch_id ON orders(batch_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_parse_rules_rule_id ON parse_rules(rule_id)`);
+
+    db.close();
 
     return NextResponse.json({
       success: true,
-      message: "✅ 数据库表创建成功！orders (SKU模式) + parse_rules 已就绪。",
+      message: "✅ SQLite 数据库初始化成功！orders + parse_rules 已重建。",
     });
   } catch (error) {
     console.error("建表失败:", error);

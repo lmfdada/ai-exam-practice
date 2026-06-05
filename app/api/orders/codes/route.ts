@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { safeGetDb } from "@/lib/orders";
+import { safeGetDb } from "@/lib/db";
 
 export async function GET() {
   try {
