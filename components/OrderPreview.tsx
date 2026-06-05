@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { STANDARD_FIELDS, validateRow } from "@/lib/orders";
+import { STANDARD_FIELDS, type StandardFieldKey, validateRow } from "@/lib/orders";
 
 interface PreviewRow {
   [key: string]: string;
@@ -181,7 +181,18 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         e.preventDefault();
         setEditingCell(null);
       } else if (e.key === "Tab") {
-        setEditingCell(null);
+        e.preventDefault();
+        updateCell(rowIndex, field, value);
+        // Tab: 下一个字段；Shift+Tab: 上一个字段
+        const fields = STANDARD_FIELDS.map((f) => f.key) as StandardFieldKey[];
+        const currentIdx = fields.indexOf(field as StandardFieldKey);
+        let nextIdx: number;
+        if (e.shiftKey) {
+          nextIdx = currentIdx > 0 ? currentIdx - 1 : fields.length - 1;
+        } else {
+          nextIdx = currentIdx < fields.length - 1 ? currentIdx + 1 : 0;
+        }
+        setEditingCell({ row: rowIndex, field: fields[nextIdx] });
       }
     },
     [updateCell]

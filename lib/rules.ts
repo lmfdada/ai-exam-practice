@@ -421,21 +421,55 @@ function applyCompositeSplit(
   const sourceField = config.sourceField as string;
   const separator = (config.separator as string) || "/";
   const fieldMapping = config.fieldMapping as Record<string, number> || {};
+  const rowSeparator = config.rowSeparator as string;
 
   if (!sourceField) return rows;
 
-  return rows.map((row) => {
-    const val = row[sourceField] || "";
-    if (!val.includes(separator)) return row;
+  const result: Record<string, string>[] = [];
 
+  for (const row of rows) {
+    const val = row[sourceField] || "";
+    if (!val.includes(rowSeparator || separator)) {
+      result.push(row);
+      continue;
+    }
+
+    if (rowSeparator && val.includes(rowSeparator)) {
+      // rowSeparator 模式：将多条目单元格展开为多行
+      const items = val.split(rowSeparator);
+      let hasValidItem = false;
+      for (const item of items) {
+        const itemStr = item.trim();
+        if (!itemStr) continue;
+        const parts = itemStr.split(separator);
+        const newRow = { ...row };
+        let mapped = false;
+        for (const [targetField, partIdx] of Object.entries(fieldMapping)) {
+          if (partIdx < parts.length) {
+            newRow[targetField] = parts[partIdx].trim();
+            mapped = true;
+          }
+        }
+        if (mapped) {
+          result.push(newRow);
+          hasValidItem = true;
+        }
+      }
+      if (hasValidItem) continue;
+    }
+
+    // 单行拆分模式（原逻辑）
     const parts = val.split(separator);
+    const newRow = { ...row };
     for (const [targetField, partIdx] of Object.entries(fieldMapping)) {
       if (partIdx < parts.length) {
-        row[targetField] = parts[partIdx].trim();
+        newRow[targetField] = parts[partIdx].trim();
       }
     }
-    return row;
-  });
+    result.push(newRow);
+  }
+
+  return result;
 }
 
 /**
