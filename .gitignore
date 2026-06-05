@@ -25,9 +25,7 @@
 *.pem
 
 # environment
-.env
-.env.local
-.env.production
+# (see "env files" section below for .env rules)
 
 # test output
 test-report.json
@@ -39,7 +37,10 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+.env
+.env.local
+.env.production
+.env*.local
 
 # local database
 /data/
@@ -50,4 +51,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-.env*.local
