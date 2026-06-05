@@ -22,7 +22,7 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
 
   const [externalCode, setExternalCode] = useState("");
@@ -303,7 +303,20 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
       {totalPages > 0 && (
         <div className="flex items-center justify-between mt-4 text-xs shrink-0"
              style={{ color: "var(--ztocc-text-secondary)" }}>
-          <span>共 {total} 条 · 本页 {orders.length} 条</span>
+          <span className="flex items-center gap-2">
+            共 {total} 条 · 本页 {orders.length} 条
+            <select
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); fetchOrders(1); }}
+              className="input"
+              style={{ fontSize: 12, padding: "1px 4px", width: "auto", height: 24 }}
+            >
+              <option value={10}>10 条/页</option>
+              <option value={20}>20 条/页</option>
+              <option value={50}>50 条/页</option>
+              <option value={100}>100 条/页</option>
+            </select>
+          </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => fetchOrders(1)}

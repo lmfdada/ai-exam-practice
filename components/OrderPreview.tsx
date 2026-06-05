@@ -29,7 +29,6 @@ interface Props {
   onSubmitSuccess?: () => void;
 }
 
-const PAGE_SIZE = 50;
 const SUBMIT_BATCH_SIZE = 200;
 const VIRTUAL_THRESHOLD = 500;
 const ROW_HEIGHT = 42;
@@ -90,6 +89,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   } | null>(null);
   const [existingCodes, setExistingCodes] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [hoveredCell, setHoveredCell] = useState<{ row: number; field: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ row: number; field: string } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -110,10 +110,10 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
       .catch(() => {});
   }, []);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(rows.length / PAGE_SIZE)), [rows.length]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(rows.length / pageSize)), [rows.length, pageSize]);
   const safePage = Math.min(page, totalPages);
-  const pageStart = (safePage - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, rows.length);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, rows.length);
   const currentRows = useMemo(() => rows.slice(pageStart, pageEnd), [rows, pageStart, pageEnd]);
 
   const visibleCount = useMemo(() => Math.ceil((scrollRef.current?.clientHeight || 600) / ROW_HEIGHT) + 4, [scrollRef.current?.clientHeight]);
@@ -379,7 +379,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ztocc-text-primary)" }}>数据预览与编辑</div>
           <div style={{ fontSize: 12, color: "var(--ztocc-text-secondary)", marginTop: 4 }}>
-            {rows.length > PAGE_SIZE
+            {rows.length > pageSize
               ? `共 ${rows.length} 行，显示第 ${pageStart + 1}-${pageEnd} 行`
               : `共 ${rows.length} 行`}
             {rows.length > 500 && (
@@ -688,6 +688,17 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            className="input"
+            style={{ fontSize: 12, padding: "2px 6px", width: "auto" }}
+          >
+            <option value={10}>10 条/页</option>
+            <option value={20}>20 条/页</option>
+            <option value={50}>50 条/页</option>
+            <option value={100}>100 条/页</option>
+          </select>
           {totalPages > 1 && !useVirtual && (
             <>
               <button

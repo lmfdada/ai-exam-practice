@@ -31,24 +31,29 @@ export async function POST(request: NextRequest) {
     const bid = batchId || `batch_${Date.now()}`;
     const sql = getDb();
 
-    // 查询已存在的外部编码
-    const existingCodes = new Set<string>();
-    const codesToCheck = rawRows
-      .map((r: Record<string, string>) => r.external_code?.trim())
-      .filter(Boolean);
-    if (codesToCheck.length > 0) {
+    // 查询已存在的外部编码+门店组合
+    const existingCodeStore = new Set<string>();
+    const comboToCheck = rawRows
+      .map((r: Record<string, string>) => {
+        const code = r.external_code?.trim();
+        const store = r.receiver_store?.trim();
+        return code ? `${code}::${store || ""}` : null;
+      })
+      .filter(Boolean) as string[];
+    if (comboToCheck.length > 0) {
       const existing = await sql`
-        SELECT DISTINCT external_code FROM orders
-        WHERE external_code = ANY(${codesToCheck}::varchar[])
+        SELECT DISTINCT external_code, receiver_store FROM orders
+        WHERE external_code = ANY(${comboToCheck.map((c) => c.split("::")[0])}::varchar[])
       `;
       for (const row of existing as Record<string, unknown>[]) {
-        existingCodes.add(String(row.external_code));
+        const key = `${String(row.external_code)}::${String(row.receiver_store || "")}`;
+        existingCodeStore.add(key);
       }
     }
 
     // 深度校验
     const validated = rawRows.map((row: Record<string, string>, i: number) => {
-      const errors = validateRow(row, i, rawRows, existingCodes);
+      const errors = validateRow(row, i, rawRows, existingCodeStore);
       const orderRow = buildOrderRow(row);
       return { row: orderRow, errors };
     });

@@ -180,46 +180,73 @@ export default function OrderImport({ onImportComplete }: Props) {
     }
 
     try {
-      const xhr = new XMLHttpRequest();
+      const response = await fetch("/api/orders/import?stream=true", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        // 非流式错误响应
+        const errJson = await response.json().catch(() => null);
+        throw new Error(errJson?.message || `上传失败 (${response.status})`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("浏览器不支持流式读取");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
 
       const result = await new Promise<ImportData>((resolve, reject) => {
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) {
-            setUploadProgress(Math.round((e.loaded / e.total) * 90));
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const json = JSON.parse(xhr.responseText);
-              if (json.success) {
-                const d = json.data;
-                resolve({
-                  headers: d.headers || [],
-                  rows: d.rows || [],
-                  rowCount: d.rowCount || 0,
-                  mapping: d.mapping || {},
-                  fingerprint: d.fingerprint || "",
-                  method: rule ? "rule" : "auto",
-                  ruleName: rule?.name,
-                });
-              } else {
-                reject(new Error(json.message || "解析失败"));
-              }
-            } catch {
-              reject(new Error("响应格式错误"));
+        const pump = () => {
+          reader!.read().then(({ done, value }) => {
+            if (done) {
+              // 流结束但未收到 result 事件
+              reject(new Error("解析中断：未收到解析结果"));
+              return;
             }
-          } else {
-            reject(new Error(`上传失败 (${xhr.status})`));
-          }
-        });
 
-        xhr.addEventListener("error", () => reject(new Error("网络错误")));
-        xhr.addEventListener("abort", () => reject(new Error("上传已取消")));
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || ""; // 保留未完成的行
 
-        xhr.open("POST", "/api/orders/import");
-        xhr.send(formData);
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+
+              try {
+                const event = JSON.parse(trimmed);
+
+                if (event.type === "progress") {
+                  setUploadProgress(event.current);
+                } else if (event.type === "result") {
+                  if (event.success && event.data) {
+                    const d = event.data;
+                    resolve({
+                      headers: d.headers || [],
+                      rows: d.rows || [],
+                      rowCount: d.rowCount || 0,
+                      mapping: d.mapping || {},
+                      fingerprint: d.fingerprint || "",
+                      method: rule ? "rule" : "auto",
+                      ruleName: rule?.name,
+                    });
+                  } else {
+                    reject(new Error(event.message || "解析失败"));
+                  }
+                  return;
+                }
+              } catch {
+                // 忽略解析错误行
+              }
+            }
+
+            // 继续读取
+            pump();
+          }).catch((err) => reject(err));
+        };
+
+        pump();
       });
 
       setUploadProgress(100);

@@ -155,17 +155,21 @@ export function validateRow(row: Record<string, string>, index: number, allRows:
   // A组/B组校验
   validateGroupAB(row, index, errors);
 
-  // 外部编码重复检测改为不阻断（允许配送单多行明细共享同一编码）
+  // 外部编码+门店 重复检测
   const code = row.external_code?.trim();
+  const store = row.receiver_store?.trim();
   if (code) {
-    const duplicateInBatch = allRows.findIndex(
-      (r, i) => i !== index && r.external_code?.trim() === code
+    // 前端（当前批次内）重复检测
+    const dupInBatch = allRows.findIndex(
+      (r, i) => i !== index && r.external_code?.trim() === code && r.receiver_store?.trim() === store
     );
-    if (duplicateInBatch !== -1) {
-      // 不报错，允许重复
+    if (dupInBatch !== -1) {
+      errors.push(`第 ${index + 1} 行，外部编码+门店：与第 ${dupInBatch + 1} 行重复，请修改`);
     }
-    if (existingCodes.has(code)) {
-      // 不报错，允许重复提交
+    // 后端（已提交数据）重复检测
+    const comboKey = `${code}::${store || ""}`;
+    if (existingCodes.has(comboKey)) {
+      errors.push(`第 ${index + 1} 行，外部编码+门店：该组合已提交过，请修改`);
     }
   }
 

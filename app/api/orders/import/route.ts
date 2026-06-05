@@ -231,61 +231,333 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const ruleJson = formData.get("rule") as string | null;
+    const isStream = request.nextUrl.searchParams.get("stream") === "true";
 
     if (!file) {
-      return NextResponse.json({ success: false, message: "请上传文件" }, { status: 400 });
+      const msg = JSON.stringify({ success: false, message: "请上传文件" });
+      return isStream
+        ? streamingResponse(new TextEncoder().encode(msg + "\n"))
+        : NextResponse.json({ success: false, message: "请上传文件" }, { status: 400 });
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ success: false, message: "文件大小超过 10MB 限制" }, { status: 400 });
+      const msg = JSON.stringify({ success: false, message: "文件大小超过 10MB 限制" });
+      return isStream
+        ? streamingResponse(new TextEncoder().encode(msg + "\n"))
+        : NextResponse.json({ success: false, message: "文件大小超过 10MB 限制" }, { status: 400 });
     }
 
-    // 空文件检测
     if (file.size === 0) {
-      return NextResponse.json({
-        success: false,
-        message: "上传的文件为空（0 字节），请检查文件是否正确",
-      }, { status: 400 });
+      const msg = JSON.stringify({ success: false, message: "上传的文件为空（0 字节）" });
+      return isStream
+        ? streamingResponse(new TextEncoder().encode(msg + "\n"))
+        : NextResponse.json({ success: false, message: "上传的文件为空（0 字节）" }, { status: 400 });
     }
 
     const nameLower = file.name.toLowerCase();
     const ext = nameLower.slice(nameLower.lastIndexOf("."));
     if (!ALLOWED_EXTS.includes(ext)) {
-      return NextResponse.json({ success: false, message: `不支持的文件格式 "${ext}"，仅支持 ${ALLOWED_EXTS.join(", ")}` }, { status: 400 });
+      const msg = JSON.stringify({ success: false, message: `不支持的文件格式 "${ext}"，仅支持 ${ALLOWED_EXTS.join(", ")}` });
+      return isStream
+        ? streamingResponse(new TextEncoder().encode(msg + "\n"))
+        : NextResponse.json({ success: false, message: `不支持的文件格式 "${ext}"，仅支持 ${ALLOWED_EXTS.join(", ")}` }, { status: 400 });
     }
 
-    let rule: ParseRule | undefined;
-    if (ruleJson) {
+    // 如果是流式模式，返回流式响应
+    if (isStream) {
+      return handleStreamImport(file, ruleJson, ext);
+    }
+
+    // 非流式模式：保持原有逻辑
+    return handleNonStreamImport(file, ruleJson, ext);
+  } catch (error) {
+    console.error("导入解析失败:", error);
+
+    let message = error instanceof Error ? error.message : "解析失败";
+    const errorStr = String(error);
+    if (errorStr.includes("encoding") || errorStr.includes("Encoding") ||
+        errorStr.includes("charset") || errorStr.includes("iconv") ||
+        errorStr.includes("decode")) {
+      message = `文件编码异常，请尝试重新导出为 .xlsx 格式后再上传（原始错误: ${message}）`;
+    } else if (
+      errorStr.includes("corrupt") || errorStr.includes("corrupted") ||
+      errorStr.includes("invalid") || errorStr.includes("bad") ||
+      errorStr.includes("损坏") || errorStr.includes("格式错误") ||
+      errorStr.includes("not a") || errorStr.includes("unexpected")
+    ) {
+      message = `文件可能已损坏或格式不正确（原始错误: ${message}）`;
+    } else if (
+      errorStr.includes("password") || errorStr.includes("protected") ||
+      errorStr.includes("加密") || errorStr.includes("密码")
+    ) {
+      message = `文件已被加密/保护，请先解密后再上传（原始错误: ${message}）`;
+    }
+
+    return NextResponse.json({ success: false, message }, { status: 500 });
+  }
+}
+
+// ===== 流式响应工具 =====
+function streamingResponse(chunk: Uint8Array): Response {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
+}
+
+function createStream(
+  file: File,
+  ruleJson: string | null,
+  ext: string
+): ReadableStream {
+  return new ReadableStream({
+    async start(controller) {
+      const enc = new TextEncoder();
+      const send = (data: unknown) => {
+        controller.enqueue(enc.encode(JSON.stringify(data) + "\n"));
+      };
+
       try {
-        const parsed = JSON.parse(ruleJson) as Partial<ParseRule>;
-        // 前端发送的 Rule 对象缺少 config，补充默认值
-        rule = {
-          id: parsed.id || "",
-          name: parsed.name || "",
-          description: parsed.description || "",
-          createdAt: parsed.createdAt || new Date().toISOString(),
-          updatedAt: parsed.updatedAt || new Date().toISOString(),
-          fileTypes: parsed.fileTypes || ["xlsx"],
-          config: parsed.config || {
-            sheets: "auto" as const,
-            headerDetection: "auto" as const,
-            columns: [],
-            steps: [],
-          },
-        };
-      } catch {
-        // 规则解析失败，忽略
-      }
-    }
+        send({ type: "progress", current: 0, total: 100, phase: "正在读取文件..." });
 
-    const buffer = await file.arrayBuffer();
+        let rule: ParseRule | undefined;
+        if (ruleJson) {
+          try {
+            const parsed = JSON.parse(ruleJson) as Partial<ParseRule>;
+            rule = {
+              id: parsed.id || "",
+              name: parsed.name || "",
+              description: parsed.description || "",
+              createdAt: parsed.createdAt || new Date().toISOString(),
+              updatedAt: parsed.updatedAt || new Date().toISOString(),
+              fileTypes: parsed.fileTypes || ["xlsx"],
+              config: parsed.config || {
+                sheets: "auto" as const,
+                headerDetection: "auto" as const,
+                columns: [],
+                steps: [],
+              },
+            };
+          } catch { /* ignore */ }
+        }
+
+        const buffer = await file.arrayBuffer();
+        send({ type: "progress", current: 15, total: 100, phase: "文件格式验证通过，开始解析数据..." });
+
+        let allHeaders: string[] = [];
+        let allDataRows: Record<string, string>[] = [];
+        let rowCount = 0;
+
+        if (ext === ".xlsx" || ext === ".xls") {
+          send({ type: "progress", current: 25, total: 100, phase: "打开 Excel 文件，检测工作表..." });
+          const parsedSheets = await parseExcelSheets(buffer, rule);
+
+          send({ type: "progress", current: 40, total: 100, phase: `读取到 ${parsedSheets.length} 个工作表，提取数据行...` });
+
+          const fallbackDataRows: Record<string, string>[] = [];
+          let fallbackHeaders: string[] = [];
+          for (const sheet of parsedSheets) {
+            fallbackDataRows.push(
+              ...sheet.rawRows.map((row) => {
+                const mapped: Record<string, string> = {};
+                sheet.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+                return mapped;
+              })
+            );
+            if (parsedSheets.length === 1) {
+              // fullRows is not used later, skip
+            }
+          }
+          if (fallbackDataRows.length > 0) {
+            fallbackHeaders = Object.keys(fallbackDataRows[0]);
+          }
+
+          send({ type: "progress", current: 60, total: 100, phase: `数据提取完成（${fallbackDataRows.length} 行），执行列映射...` });
+
+          if (rule) {
+            for (const sheet of parsedSheets) {
+              const context: ParseContext = {
+                rawRows: sheet.rawRows,
+                rawHeaders: sheet.headers,
+                sourceName: sheet.sourceName,
+                fullRows: sheet.fullRows,
+              };
+              const result = executeRule(rule, context);
+              allDataRows.push(...result.rows);
+            }
+            if (allDataRows.length > 0) {
+              allHeaders = Object.keys(allDataRows[0]);
+            }
+            rowCount = allDataRows.length;
+
+            const hasStandardFields = allHeaders.some((h) =>
+              ["external_code", "receiver_store", "receiver_name", "receiver_phone",
+               "receiver_address", "sku_code", "sku_name", "sku_qty", "sku_spec", "remark"].includes(h)
+            );
+            if (!hasStandardFields) {
+              allDataRows = fallbackDataRows;
+              allHeaders = fallbackHeaders;
+              rowCount = allDataRows.length;
+            }
+          } else {
+            allDataRows = fallbackDataRows;
+            allHeaders = fallbackHeaders;
+            rowCount = allDataRows.length;
+          }
+        } else if (ext === ".docx") {
+          send({ type: "progress", current: 30, total: 100, phase: "读取 Word 文档..." });
+          const docxResult = await parseDocx(buffer);
+          allHeaders = docxResult.headers;
+          allDataRows = docxResult.dataRows.map((row) => {
+            const mapped: Record<string, string> = {};
+            docxResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+            return mapped;
+          });
+          rowCount = docxResult.rowCount;
+
+          send({ type: "progress", current: 60, total: 100, phase: `Word 数据提取完成（${rowCount} 行），执行映射...` });
+
+          if (rule && rowCount > 0) {
+            const context: ParseContext = {
+              rawRows: docxResult.dataRows,
+              rawHeaders: docxResult.headers,
+              sourceName: file.name,
+              fullRows: docxResult.fullRows,
+            };
+            const result = executeRule(rule, context);
+            if (result.rows.length > 0) {
+              allDataRows = result.rows;
+              allHeaders = Object.keys(result.rows[0]);
+              rowCount = result.rows.length;
+            }
+          }
+        } else if (ext === ".pdf") {
+          send({ type: "progress", current: 30, total: 100, phase: "读取 PDF 文档..." });
+          const pdfResult = await parsePdf(buffer);
+          allHeaders = pdfResult.headers;
+          allDataRows = pdfResult.dataRows.map((row) => {
+            const mapped: Record<string, string> = {};
+            pdfResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+            return mapped;
+          });
+          rowCount = pdfResult.rowCount;
+
+          send({ type: "progress", current: 60, total: 100, phase: `PDF 数据提取完成（${rowCount} 行）...` });
+
+          if (rule && rowCount > 0) {
+            const context: ParseContext = {
+              rawRows: pdfResult.dataRows,
+              rawHeaders: pdfResult.headers,
+              sourceName: file.name,
+              fullRows: pdfResult.fullRows,
+            };
+            const result = executeRule(rule, context);
+            if (result.rows.length > 0) {
+              allDataRows = result.rows;
+              allHeaders = Object.keys(result.rows[0]);
+              rowCount = result.rows.length;
+            }
+          }
+        }
+
+        if (allDataRows.length === 0) {
+          const formatLabel = ext === ".xlsx" || ext === ".xls" ? "Excel"
+            : ext === ".docx" ? "Word"
+            : ext === ".pdf" ? "PDF"
+            : "文件";
+          send({ type: "result", success: false, message: `未能从${formatLabel}文件「${file.name}」中提取到有效数据行。请使用规则配置来解析此文件格式。` });
+          controller.close();
+          return;
+        }
+
+        send({ type: "progress", current: 80, total: 100, phase: `验证完成（${rowCount} 行），生成预览...` });
+
+        const rowsAsArrays: string[][] = allDataRows.map((row) =>
+          allHeaders.map((h) => row[h] || "")
+        );
+
+        let mapping: Record<string, string>;
+        if (rule?.config?.columns && rule.config.columns.length > 0) {
+          mapping = Object.fromEntries(allHeaders.map((h) => [h, h]));
+        } else {
+          mapping = autoDetectMapping(allHeaders);
+        }
+
+        const fingerprint = computeFingerprint(allHeaders);
+
+        send({ type: "progress", current: 100, total: 100, phase: "解析完成" });
+        send({
+          type: "result",
+          success: true,
+          data: {
+            headers: allHeaders,
+            rows: rowsAsArrays.slice(0, 200),
+            rowCount,
+            mapping,
+            fingerprint,
+            format: ext,
+          },
+        });
+      } catch (error) {
+        console.error("流式解析失败:", error);
+        const message = error instanceof Error ? error.message : "解析失败";
+        send({ type: "result", success: false, message });
+      }
+
+      controller.close();
+    },
+  });
+}
+
+function handleStreamImport(
+  file: File,
+  ruleJson: string | null,
+  ext: string
+): Response {
+  const stream = createStream(file, ruleJson, ext);
+  return new Response(stream, {
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
+}
+
+async function handleNonStreamImport(
+  file: File,
+  ruleJson: string | null,
+  ext: string
+): Promise<NextResponse> {
+  try {
+    let rule: ParseRule | undefined;
+  if (ruleJson) {
+    try {
+      const parsed = JSON.parse(ruleJson) as Partial<ParseRule>;
+      rule = {
+        id: parsed.id || "",
+        name: parsed.name || "",
+        description: parsed.description || "",
+        createdAt: parsed.createdAt || new Date().toISOString(),
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+        fileTypes: parsed.fileTypes || ["xlsx"],
+        config: parsed.config || {
+          sheets: "auto" as const,
+          headerDetection: "auto" as const,
+          columns: [],
+          steps: [],
+        },
+      };
+    } catch { /* ignore */ }
+  }
+
+  const buffer = await file.arrayBuffer();
 
     // ===== 按格式解析 =====
     let allHeaders: string[] = [];
     let allDataRows: Record<string, string>[] = [];
     let rowCount = 0;
-    let fullRows: string[][] = [];
-
     if (ext === ".xlsx" || ext === ".xls") {
       const parsedSheets = await parseExcelSheets(buffer, rule);
 
@@ -300,9 +572,7 @@ export async function POST(request: NextRequest) {
             return mapped;
           })
         );
-        if (parsedSheets.length === 1) {
-          fullRows = sheet.fullRows;
-        }
+
       }
       if (fallbackDataRows.length > 0) {
         fallbackHeaders = Object.keys(fallbackDataRows[0]);
@@ -345,7 +615,6 @@ export async function POST(request: NextRequest) {
     } else if (ext === ".docx") {
       const docxResult = await parseDocx(buffer);
       allHeaders = docxResult.headers;
-      fullRows = docxResult.fullRows;
       allDataRows = docxResult.dataRows.map((row) => {
         const mapped: Record<string, string> = {};
         docxResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
@@ -371,7 +640,6 @@ export async function POST(request: NextRequest) {
     } else if (ext === ".pdf") {
       const pdfResult = await parsePdf(buffer);
       allHeaders = pdfResult.headers;
-      fullRows = pdfResult.fullRows;
       allDataRows = pdfResult.dataRows.map((row) => {
         const mapped: Record<string, string> = {};
         pdfResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });

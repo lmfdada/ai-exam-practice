@@ -18,6 +18,7 @@
     "ai": "^3.4.30",
     "antd": "^6.3.7",
     "better-sqlite3": "^12.10.0",
+    "docx": "^9.7.1",
     "emoji-picker-react": "^4.19.1",
     "exceljs": "^4.4.0",
     "mammoth": "^1.12.0",
