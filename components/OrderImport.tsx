@@ -1,208 +1,494 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import { STANDARD_FIELDS } from "@/lib/orders";
-
-interface ParsedData {
-  headers: string[];
-  rows: string[][];
-  autoMapping: Record<string, string>;
-  fingerprint: string;
-  totalRows: number;
-}
+import React, { useState, useRef, useCallback } from "react";
+import type { ImportData } from "@/app/page";
 
 interface Props {
-  onImportComplete: (data: ParsedData, mapping: Record<string, string>) => void;
+  onImportComplete: (data: ImportData) => void;
 }
 
+interface Rule {
+  id: string;
+  name: string;
+  description: string;
+  fileTypes: string[];
+  usedCount: number;
+  isAiGenerated?: boolean;
+}
+
+type Step = "select" | "upload" | "mapping" | "generating";
+
 export default function OrderImport({ onImportComplete }: Props) {
-  const [dragOver, setDragOver] = useState(false);
+  const [step, setStep] = useState<Step>("select");
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [selectedRule, setSelectedRule] = useState<Rule | null>(null);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("");
-  const [parsed, setParsed] = useState<ParsedData | null>(null);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+  const [parseResult, setParseResult] = useState<ImportData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const applyMapping = useCallback((p: ParsedData) => {
-    setMapping({ ...p.autoMapping });
+  // ===== 加载规则列表 =====
+  const loadRules = useCallback(async () => {
+    setRulesLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/rules");
+      const json = await res.json();
+      if (json.success) {
+        setRules(json.data || []);
+      }
+    } catch {
+      setError("加载规则列表失败");
+    }
+    setRulesLoading(false);
   }, []);
 
-  const uploadFile = useCallback(async (file: File) => {
-    setUploading(true);
+  // ===== 选择已有规则 =====
+  const handleSelectRule = (rule: Rule) => {
+    setSelectedRule(rule);
+    setStep("upload");
+  };
+
+  // ===== AI 生成规则 =====
+  const handleAIGenerate = async () => {
+    setStep("generating");
     setError("");
-    setProgress(0);
-    setParsed(null);
-    setProgressLabel(`上传中... 0/${Math.round(file.size / 1024)}KB`);
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".xlsx,.xls,.pdf,.docx,.csv,.txt";
+    input.onchange = async (e) => {
+      const f = (e.target as HTMLInputElement).files?.[0];
+      if (!f) { setStep("select"); return; }
+
+      setStep("generating");
+
+      const formData = new FormData();
+      formData.append("file", f);
+
+      try {
+        const res = await fetch("/api/rules/generate", {
+          method: "POST",
+          body: formData,
+        });
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          const newRule: Rule = {
+            id: json.data.id || `ai_${Date.now()}`,
+            name: json.data.name || f.name,
+            description: json.data.description || "AI 自动生成",
+            fileTypes: json.data.fileTypes || ["xlsx"],
+            usedCount: 0,
+            isAiGenerated: true,
+          };
+
+          // 先选这个规则，再上传文件
+          setSelectedRule(newRule);
+          setStep("upload");
+          setFile(f);
+        } else {
+          setError(json.message || json.fallback?.message || "AI 生成规则失败");
+          setStep("select");
+        }
+      } catch (err) {
+        setError("AI 生成规则失败: " + String(err));
+        setStep("select");
+      }
+    };
+    input.click();
+  };
+
+  // ===== 手动上传文件（无规则或已有规则时） =====
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      setFile(f);
+      setError("");
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) { setError("请选择文件"); return; }
+
+    setUploading(true);
+    setUploadProgress(0);
+    setError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    if (selectedRule) {
+      formData.append("rule", JSON.stringify(selectedRule));
+    }
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
       const xhr = new XMLHttpRequest();
 
-      const result = await new Promise<ParsedData>((resolve, reject) => {
+      const result = await new Promise<ImportData>((resolve, reject) => {
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 80);
-            setProgress(pct);
-            const loadedKB = Math.round(e.loaded / 1024);
-            const totalKB = Math.round(e.total / 1024);
-            setProgressLabel(`上传中... ${loadedKB}/${totalKB}KB`);
+            setUploadProgress(Math.round((e.loaded / e.total) * 90));
           }
         });
 
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const data = JSON.parse(xhr.responseText);
-              if (data.success) {
-                resolve(data.data as ParsedData);
+              const json = JSON.parse(xhr.responseText);
+              if (json.success) {
+                const d = json.data;
+                resolve({
+                  headers: d.headers || [],
+                  rows: d.rows || [],
+                  rowCount: d.rowCount || 0,
+                  mapping: d.mapping || {},
+                  fingerprint: d.fingerprint || "",
+                  method: selectedRule ? "rule" : "auto",
+                  ruleName: selectedRule?.name,
+                });
               } else {
-                reject(new Error(data.message || "解析失败"));
+                reject(new Error(json.message || "解析失败"));
               }
             } catch {
-              reject(new Error("服务器返回数据异常"));
+              reject(new Error("响应格式错误"));
             }
           } else {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              reject(new Error(data.message || `服务器错误 (${xhr.status})`));
-            } catch {
-              reject(new Error(`服务器错误 (${xhr.status})`));
-            }
+            reject(new Error(`上传失败 (${xhr.status})`));
           }
         });
 
-        xhr.addEventListener("error", () => reject(new Error("网络错误，请检查连接后重试")));
+        xhr.addEventListener("error", () => reject(new Error("网络错误")));
         xhr.addEventListener("abort", () => reject(new Error("上传已取消")));
 
         xhr.open("POST", "/api/orders/import");
         xhr.send(formData);
       });
 
-      setProgress(85);
-      setProgressLabel("识别模板中...");
-
-      const templateRes = await fetch(`/api/templates?fingerprint=${encodeURIComponent(result.fingerprint)}`);
-      const templateData = await templateRes.json();
-
-      setProgress(100);
-      if (templateData.success && templateData.data) {
-        setMapping(templateData.data.mapping as Record<string, string>);
-        setProgressLabel(`已加载历史模板 (${result.totalRows} 条数据)`);
-      } else {
-        setMapping({ ...result.autoMapping });
-        setProgressLabel(`自动匹配完成 (${result.totalRows} 条数据)`);
-      }
-
-      setParsed(result);
+      setUploadProgress(100);
+      setParseResult(result);
+      setStep("mapping");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "未知错误");
-      setProgress(0);
-      setProgressLabel("");
-    } finally {
-      setUploading(false);
+      setError(err instanceof Error ? err.message : "上传失败");
     }
-  }, []);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file) uploadFile(file);
-    },
-    [uploadFile]
-  );
+    setUploading(false);
+  };
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) uploadFile(file);
-    },
-    [uploadFile]
-  );
-
-  const saveMapping = useCallback(async () => {
-    if (!parsed) return;
-    setSaving(true);
-    try {
-      await fetch("/api/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fingerprint: parsed.fingerprint, mapping }),
-      });
-    } catch {
-    } finally {
-      setSaving(false);
+  // ===== 确认映射并完成导入 =====
+  const handleConfirmMapping = () => {
+    if (parseResult) {
+      onImportComplete(parseResult);
     }
-  }, [parsed, mapping]);
+  };
 
-  const confirmMapping = useCallback(() => {
-    if (!parsed) return;
-    onImportComplete(parsed, mapping);
-  }, [parsed, mapping, onImportComplete]);
+  // ===== 修改映射 =====
+  const handleMappingChange = (header: string, field: string) => {
+    if (!parseResult) return;
+    setParseResult({
+      ...parseResult,
+      mapping: { ...parseResult.mapping, [header]: field },
+    });
+  };
 
-  if (parsed) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-medium text-white">列映射确认</h3>
-            <p className="text-xs text-gray-400 mt-1">
-              {parsed.totalRows} 行数据 · 检测到 {parsed.headers.length} 列
-              {parsed.totalRows > 500 && (
-                <span className="text-amber-400 ml-2">⚠ 数据量较大 ({parsed.totalRows} 行)</span>
-              )}
-            </p>
+  // ===== 渲染步骤 =====
+  const renderSelectStep = () => (
+    <div style={{ padding: 40 }}>
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
+          选择解析方式
+        </div>
+        <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>
+          选择一个已有的解析规则，或使用 AI 智能分析文件生成规则
+        </div>
+      </div>
+
+      {/* 规则列表 */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+            已有解析规则
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setParsed(null); setMapping({}); setProgress(0); setProgressLabel(""); }}
-              className="text-xs px-3 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              ↩ 重新选择
+          <button className="btn btn-sm btn-ghost" onClick={loadRules}>
+            刷新
+          </button>
+        </div>
+
+        {rulesLoading ? (
+          <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
+            加载中...
+          </div>
+        ) : rules.length === 0 ? (
+          <div
+            className="card"
+            style={{
+              padding: 32,
+              textAlign: "center",
+              cursor: "pointer",
+              borderStyle: "dashed",
+            }}
+            onClick={loadRules}
+          >
+            <div style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 8 }}>
+              暂无保存的规则
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              点击加载或使用以下按钮创建新规则
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {rules.map((rule) => (
+              <div
+                key={rule.id}
+                className="card"
+                style={{
+                  padding: "12px 16px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  border: selectedRule?.id === rule.id
+                    ? "1px solid var(--primary)"
+                    : "1px solid var(--border-color)",
+                }}
+                onClick={() => handleSelectRule(rule)}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+                    {rule.name}
+                    {rule.isAiGenerated && (
+                      <span className="tag tag-cyan" style={{ marginLeft: 8, fontSize: 11 }}>
+                        AI
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                    {rule.description || rule.fileTypes.join(", ")}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  已用 {rule.usedCount || 0} 次
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 操作按钮 */}
+      <div style={{ display: "flex", gap: 12 }}>
+        <button
+          className="btn btn-primary btn-lg"
+          onClick={handleAIGenerate}
+          style={{ flex: 1 }}
+        >
+          🤖 AI 智能生成规则
+        </button>
+        <button
+          className="btn btn-secondary btn-lg"
+          onClick={() => {
+            setSelectedRule(null);
+            setStep("upload");
+          }}
+          style={{ flex: 1 }}
+        >
+          直接上传（自动解析）
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderUploadStep = () => (
+    <div style={{ padding: 40 }}>
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
+          上传文件
+        </div>
+        <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>
+          {selectedRule
+            ? `使用规则「${selectedRule.name}」解析文件`
+            : "系统将自动检测文件结构并建立列映射"}
+        </div>
+      </div>
+
+      {/* 规则摘要 */}
+      {selectedRule && (
+        <div className="card" style={{
+          padding: "10px 16px",
+          marginBottom: 20,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          borderLeft: "3px solid var(--primary)",
+        }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>当前规则：</span>
+          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+            {selectedRule.name}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {selectedRule.description}
+          </span>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => { setSelectedRule(null); setStep("select"); }}
+            style={{ marginLeft: "auto" }}
+          >
+            更换
+          </button>
+        </div>
+      )}
+
+      {/* 文件上传区域 */}
+      <div
+        className="card"
+        style={{
+          padding: 40,
+          textAlign: "center",
+          borderStyle: "dashed",
+          cursor: "pointer",
+          borderColor: file ? "var(--primary)" : "var(--border-color)",
+        }}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.pdf,.docx,.csv"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+
+        {file ? (
+          <div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
+              {file.name}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>
+              {(file.size / 1024).toFixed(1)} KB
+            </div>
+            <button className="btn btn-sm btn-secondary" onClick={(e) => {
+              e.stopPropagation();
+              setFile(null);
+            }}>
+              重新选择
             </button>
-            <button
-              onClick={() => applyMapping(parsed)}
-              className="text-xs px-3 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              🔄 自动映射
-            </button>
-            <button
-              onClick={async () => { await saveMapping(); confirmMapping(); }}
-              className="text-xs px-4 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors"
-            >
-              {saving ? "保存中..." : "✅ 确认导入"}
-            </button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 40, marginBottom: 8, opacity: 0.4 }}>📂</div>
+            <div style={{ fontSize: 15, color: "var(--text-secondary)", marginBottom: 4 }}>
+              点击上传文件
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              支持 .xlsx .xls .pdf .docx .csv 格式
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 进度条 */}
+      {uploading && (
+        <div style={{ marginTop: 16 }}>
+          <div className="progress-bar">
+            <div className="progress-bar-fill" style={{ width: `${uploadProgress}%` }} />
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginTop: 4 }}>
+            解析中 {uploadProgress}%
+          </div>
+        </div>
+      )}
+
+      {/* 按钮 */}
+      <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+        <button className="btn btn-secondary" onClick={() => setStep("select")}>
+          返回
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          style={{ flex: 1 }}
+        >
+          {uploading ? "解析中..." : "开始解析"}
+        </button>
+      </div>
+
+      {error && <div className="msg-bubble error" style={{ marginTop: 12 }}>{error}</div>}
+    </div>
+  );
+
+  const renderMappingStep = () => {
+    if (!parseResult) return null;
+    const { headers, mapping, rowCount } = parseResult;
+    const standardFields = [
+      { key: "", label: "— 忽略此列 —" },
+      { key: "external_code", label: "外部编码" },
+      { key: "receiver_store", label: "收货门店 (A组)" },
+      { key: "receiver_name", label: "收件人姓名 (B组)" },
+      { key: "receiver_phone", label: "收件人电话 (B组)" },
+      { key: "receiver_address", label: "收件人地址 (B组)" },
+      { key: "sku_code", label: "SKU物品编码" },
+      { key: "sku_name", label: "SKU物品名称" },
+      { key: "sku_qty", label: "SKU发货数量" },
+      { key: "sku_spec", label: "SKU规格型号" },
+      { key: "remark", label: "备注" },
+    ];
+
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+            确认字段映射
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            共识别到 {headers.length} 列，{rowCount} 行数据
+            {parseResult.method === "rule" && (
+              <span className="tag tag-cyan" style={{ marginLeft: 8 }}>
+                规则: {parseResult.ruleName}
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="overflow-x-auto border border-white/10 rounded-xl">
-          <table className="w-full text-xs">
+        {/* 映射表格 */}
+        <div className="table-container" style={{ marginBottom: 20 }}>
+          <table>
             <thead>
-              <tr className="bg-white/5">
-                <th className="p-3 text-left text-gray-300 font-medium whitespace-nowrap">Excel 列名</th>
-                <th className="p-3 text-left text-gray-300 font-medium whitespace-nowrap">映射到系统字段</th>
+              <tr>
+                <th style={{ width: 40 }}>#</th>
+                <th>源文件列名</th>
+                <th>示例数据</th>
+                <th style={{ minWidth: 200 }}>映射到标准字段</th>
               </tr>
             </thead>
             <tbody>
-              {parsed.headers.map((header) => (
-                <tr key={header} className="border-t border-white/5 hover:bg-white/5">
-                  <td className="p-3 text-gray-300 font-mono">{header}</td>
-                  <td className="p-3">
+              {headers.map((header, i) => (
+                <tr key={i}>
+                  <td style={{ color: "var(--text-muted)" }}>{i + 1}</td>
+                  <td style={{ fontWeight: 500 }}>{header}</td>
+                  <td style={{ color: "var(--text-secondary)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {parseResult.rows[0]?.[i] || "-"}
+                  </td>
+                  <td>
                     <select
+                      className="input select"
                       value={mapping[header] || ""}
-                      onChange={(e) => setMapping((m) => ({ ...m, [header]: e.target.value }))}
-                      className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-gray-200 text-xs w-48"
+                      onChange={(e) => handleMappingChange(header, e.target.value)}
+                      style={{ width: "100%" }}
                     >
-                      <option value="">— 不导入 —</option>
-                      {STANDARD_FIELDS.map((f) => (
+                      {standardFields.map((f) => (
                         <option key={f.key} value={f.key}>
-                          {f.label} {f.required ? "*" : ""}
+                          {f.label}
                         </option>
                       ))}
                     </select>
@@ -213,71 +499,79 @@ export default function OrderImport({ onImportComplete }: Props) {
           </table>
         </div>
 
-        <p className="text-xs text-gray-500 mt-3">
-          💡 系统已根据列名自动匹配，您可以手动调整映射关系。确认后进入数据预览。
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-2">
-              <span className="text-red-400 mt-0.5">⚠</span>
-              <div>
-                <p className="text-red-400 text-sm font-medium">导入失败</p>
-                <p className="text-red-300/80 text-xs mt-1">{error}</p>
-              </div>
-            </div>
-            <button onClick={() => setError("")} className="text-red-400 hover:text-white ml-4">✕</button>
+        {/* 数据预览 */}
+        <div className="card" style={{ padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 8 }}>
+            数据预览（前5行）
+          </div>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  {headers.map((h, i) => (
+                    <th key={i}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {parseResult.rows.slice(0, 5).map((row, ri) => (
+                  <tr key={ri}>
+                    {row.map((cell, ci) => (
+                      <td key={ci}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
 
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        onClick={() => !uploading && fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
-          dragOver
-            ? "border-indigo-400 bg-indigo-500/10"
-            : "border-white/20 hover:border-indigo-400/50 hover:bg-white/5"
-        } ${uploading ? "pointer-events-none" : ""}`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={handleFileChange}
-          className="hidden"
-        />
+        {/* 按钮 */}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn btn-secondary" onClick={() => setStep("upload")}>
+            重新上传
+          </button>
+          <button
+            className="btn btn-primary btn-lg"
+            onClick={handleConfirmMapping}
+            style={{ flex: 1 }}
+          >
+            确认导入({rowCount}行)
+          </button>
+        </div>
 
-        {uploading ? (
-          <div>
-            <div className="text-4xl mb-3 mb-4">⏳</div>
-            <p className="text-gray-300 text-sm mb-2">{progressLabel}</p>
-            <div className="max-w-xs mx-auto bg-white/10 rounded-full h-2.5 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-2">{progress}%</p>
-          </div>
-        ) : (
-          <div>
-            <div className="text-4xl mb-3">📂</div>
-            <p className="text-gray-300 text-sm mb-1">
-              拖拽 Excel 文件到此处，或<span className="text-indigo-400">点击选择文件</span>
-            </p>
-            <p className="text-xs text-gray-500">支持 .xlsx / .xls 格式，最大 10MB</p>
-          </div>
-        )}
+        {error && <div className="msg-bubble error" style={{ marginTop: 12 }}>{error}</div>}
       </div>
+    );
+  };
+
+  const renderGeneratingStep = () => (
+    <div style={{ padding: 60, textAlign: "center" }}>
+      <div style={{
+        width: 48,
+        height: 48,
+        borderRadius: "50%",
+        border: "3px solid var(--border-color)",
+        borderTopColor: "var(--primary)",
+        animation: "spin 0.8s linear infinite",
+        margin: "0 auto 16px",
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{ fontSize: 16, color: "var(--text-primary)", marginBottom: 4 }}>
+        AI 正在分析文件结构...
+      </div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+        大模型正在解析文件内容，自动生成解析规则
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="animate-fadeIn">
+      {step === "select" && renderSelectStep()}
+      {step === "generating" && renderGeneratingStep()}
+      {step === "upload" && renderUploadStep()}
+      {step === "mapping" && renderMappingStep()}
     </div>
   );
 }

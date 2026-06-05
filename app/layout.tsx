@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ConfigProvider, App } from "antd";
-import theme from "@/lib/antd-theme";
+import { AntdRegistry } from "@ant-design/nextjs-registry";
+import { ConfigProvider, theme } from "antd";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI 智能留言板",
-  description: "全栈 AI 应用 — 留言板 + AI 聊天助手",
+  title: "万能导入 V2 | 智能多格式批量下单系统",
+  description: "AI 考试：智能多格式批量下单系统，支持 Excel/Word/PDF 多种格式",
 };
 
 export default function RootLayout({
@@ -25,14 +25,41 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="zh-CN"
-      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-    >
-      <body className="min-h-screen bg-gradient-to-br from-gray-950 via-indigo-950/30 to-gray-950 text-gray-100">
-        <ConfigProvider theme={theme}>
-          <App>{children}</App>
-        </ConfigProvider>
+    <html lang="zh-CN">
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+        <AntdRegistry>
+          <ConfigProvider
+            theme={{
+              algorithm: theme.darkAlgorithm,
+              token: {
+                colorPrimary: "#0fc6c2",
+                borderRadius: 8,
+                colorBgContainer: "#161b22",
+                colorBgElevated: "#1c2333",
+                colorBorder: "#30363d",
+                colorText: "#e6edf3",
+                colorTextSecondary: "#8b949e",
+                colorBgSpotlight: "rgba(15, 198, 194, 0.08)",
+              },
+              components: {
+                Table: {
+                  headerBg: "#1c2333",
+                  borderColor: "#30363d",
+                  rowHoverBg: "rgba(15, 198, 194, 0.03)",
+                },
+                Modal: {
+                  contentBg: "#161b22",
+                  headerBg: "#161b22",
+                },
+                Upload: {
+                  colorBorder: "#30363d",
+                },
+              },
+            }}
+          >
+            {children}
+          </ConfigProvider>
+        </AntdRegistry>
       </body>
     </html>
   );

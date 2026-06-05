@@ -1,140 +1,112 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/orders";
+import { getDb, buildOrderRow, validateRow } from "@/lib/orders";
 
-const BATCH_SIZE = 200;
+const MAX_ROWS_PER_REQUEST = 200;
+const MAX_TOTAL_ROWS = 10000;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { rows, batchId: clientBatchId } = body as { rows: Record<string, unknown>[]; batchId?: string };
+    const { rows: rawRows, batchId } = body;
 
-    if (!rows || !Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "提交数据不能为空" },
-        { status: 400 }
-      );
+    if (!Array.isArray(rawRows) || rawRows.length === 0) {
+      return NextResponse.json({ success: false, message: "请提供要提交的数据" }, { status: 400 });
     }
 
-    if (rows.length > 10000) {
-      return NextResponse.json(
-        { success: false, message: `单次提交不能超过 10000 条（当前 ${rows.length} 条）` },
-        { status: 400 }
-      );
+    if (rawRows.length > MAX_TOTAL_ROWS) {
+      return NextResponse.json({
+        success: false,
+        message: `单次提交最多 ${MAX_TOTAL_ROWS} 条数据`,
+      }, { status: 400 });
     }
 
-    const batchId = clientBatchId || `B${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    if (rawRows.length > MAX_ROWS_PER_REQUEST) {
+      return NextResponse.json({
+        success: false,
+        message: `单次提交最多 ${MAX_ROWS_PER_REQUEST} 条，当前 ${rawRows.length} 条，请分批提交`,
+      }, { status: 400 });
+    }
+
+    const bid = batchId || `batch_${Date.now()}`;
     const sql = getDb();
-    let successCount = 0;
-    let failCount = 0;
-    const errors: string[] = [];
 
-    for (let batchStart = 0; batchStart < rows.length; batchStart += BATCH_SIZE) {
-      const batchEnd = Math.min(batchStart + BATCH_SIZE, rows.length);
-      const batch = rows.slice(batchStart, batchEnd);
+    // 查询已存在的外部编码
+    const existingCodes = new Set<string>();
+    const codesToCheck = rawRows
+      .map((r: Record<string, string>) => r.external_code?.trim())
+      .filter(Boolean);
+    if (codesToCheck.length > 0) {
+      const existing = await sql`
+        SELECT DISTINCT external_code FROM orders
+        WHERE external_code = ANY(${codesToCheck}::varchar[])
+      `;
+      for (const row of existing) {
+        existingCodes.add(row.external_code);
+      }
+    }
 
-      const values = batch.map((r) => ({
-        external_code: String(r.external_code || "").trim(),
-        sender_name: String(r.sender_name || "").trim(),
-        sender_phone: String(r.sender_phone || "").trim(),
-        sender_address: String(r.sender_address || "").trim(),
-        receiver_name: String(r.receiver_name || "").trim(),
-        receiver_phone: String(r.receiver_phone || "").trim(),
-        receiver_address: String(r.receiver_address || "").trim(),
-        weight: Number(r.weight),
-        piece_count: Math.floor(Number(r.piece_count)),
-        temperature_level: String(r.temperature_level || "").trim(),
-        remark: String(r.remark || "").trim(),
-        batch_id: batchId,
-      }));
+    // 深度校验
+    const validated = rawRows.map((row: Record<string, string>, i: number) => {
+      const errors = validateRow(row, i, rawRows, existingCodes);
+      const orderRow = buildOrderRow(row);
+      return { row: orderRow, errors };
+    });
 
+    // 校验失败的
+    const failed = validated.filter((v: { errors: string[] }) => v.errors.length > 0);
+    const successRows = validated.filter((v: { errors: string[] }) => v.errors.length === 0);
+
+    if (successRows.length === 0) {
+      return NextResponse.json({ success: false, message: "所有数据校验均未通过", failed: failed.map((f: { errors: string[]; row: Record<string, unknown> }) => ({ errors: f.errors, row: f.row })) });
+    }
+
+    // 批量写入
+    const insertedRows: Record<string, unknown>[] = [];
+    const writeErrors: { row: Record<string, unknown>; error: string }[] = [];
+
+    for (const item of successRows) {
+      const r = item.row;
       try {
-        const placeholders = values.map(
-          (_, i) => `(${[
-            `$${i * 13 + 1}`,
-            `$${i * 13 + 2}`,
-            `$${i * 13 + 3}`,
-            `$${i * 13 + 4}`,
-            `$${i * 13 + 5}`,
-            `$${i * 13 + 6}`,
-            `$${i * 13 + 7}`,
-            `$${i * 13 + 8}`,
-            `$${i * 13 + 9}`,
-            `$${i * 13 + 10}`,
-            `$${i * 13 + 11}`,
-            `$${i * 13 + 12}`,
-            `$${i * 13 + 13}`,
-          ].join(", ")})`
-        ).join(", ");
-
-        const flatValues = values.flatMap((v) => [
-          v.external_code,
-          v.sender_name,
-          v.sender_phone,
-          v.sender_address,
-          v.receiver_name,
-          v.receiver_phone,
-          v.receiver_address,
-          v.weight,
-          v.piece_count,
-          v.temperature_level,
-          v.remark,
-          v.batch_id,
-        ]);
-
-        await sql.query(
-          `INSERT INTO orders (
-            external_code, sender_name, sender_phone, sender_address,
-            receiver_name, receiver_phone, receiver_address,
-            weight, piece_count, temperature_level, remark, batch_id
-          ) VALUES ${placeholders}`,
-          flatValues
-        );
-
-        successCount += batch.length;
-      } catch {
-        for (let i = 0; i < batch.length; i++) {
-          const rowIndex = batchStart + i;
-          try {
-            const r = batch[i];
-            await sql`
-              INSERT INTO orders (
-                external_code, sender_name, sender_phone, sender_address,
-                receiver_name, receiver_phone, receiver_address,
-                weight, piece_count, temperature_level, remark, batch_id
-              ) VALUES (
-                ${r.external_code},
-                ${r.sender_name},
-                ${r.sender_phone},
-                ${r.sender_address},
-                ${r.receiver_name},
-                ${r.receiver_phone},
-                ${r.receiver_address},
-                ${r.weight},
-                ${r.piece_count},
-                ${r.temperature_level},
-                ${r.remark},
-                ${batchId}
-              )
-            `;
-            successCount++;
-          } catch (rowErr) {
-            failCount++;
-            errors.push(`第 ${rowIndex + 1} 行提交失败：${String(rowErr)}`);
-          }
-        }
+        const result = await sql`
+          INSERT INTO orders (
+            external_code, receiver_store, receiver_name, receiver_phone, receiver_address,
+            sku_code, sku_name, sku_qty, sku_spec, remark, batch_id
+          ) VALUES (
+            ${r.external_code || ""},
+            ${r.receiver_store || ""},
+            ${r.receiver_name || ""},
+            ${r.receiver_phone || ""},
+            ${r.receiver_address || ""},
+            ${r.sku_code || ""},
+            ${r.sku_name || ""},
+            ${r.sku_qty || 0},
+            ${r.sku_spec || ""},
+            ${r.remark || ""},
+            ${bid}
+          )
+          RETURNING id
+        `;
+        insertedRows.push({ ...r, id: result[0]?.id });
+      } catch (writeErr) {
+        writeErrors.push({ row: r, error: String(writeErr) });
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: `提交完成：成功 ${successCount} 条${failCount > 0 ? `，失败 ${failCount} 条` : ""}`,
-      data: { successCount, failCount, batchId, errors },
+      message: `提交完成：成功 ${insertedRows.length} 条，失败 ${failed.length + writeErrors.length} 条`,
+      data: {
+        batchId: bid,
+        insertedCount: insertedRows.length,
+        failedCount: failed.length + writeErrors.length,
+        failed: [
+          ...failed.map((f: { errors: string[]; row: Record<string, unknown> }) => ({ errors: f.errors, row: f.row })),
+          ...writeErrors,
+        ],
+      },
     });
   } catch (error) {
     console.error("提交失败:", error);
-    return NextResponse.json(
-      { success: false, message: "提交失败", error: String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: "提交失败", error: String(error) }, { status: 500 });
   }
 }

@@ -1,20 +1,19 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { STANDARD_FIELDS, TEMPERATURE_OPTIONS, validateRow } from "@/lib/orders";
+import { STANDARD_FIELDS, validateRow } from "@/lib/orders";
 
 interface PreviewRow {
   [key: string]: string;
   external_code: string;
-  sender_name: string;
-  sender_phone: string;
-  sender_address: string;
+  receiver_store: string;
   receiver_name: string;
   receiver_phone: string;
   receiver_address: string;
-  weight: string;
-  piece_count: string;
-  temperature_level: string;
+  sku_code: string;
+  sku_name: string;
+  sku_qty: string;
+  sku_spec: string;
   remark: string;
 }
 
@@ -32,19 +31,20 @@ interface Props {
 
 const PAGE_SIZE = 50;
 const SUBMIT_BATCH_SIZE = 200;
+const VIRTUAL_THRESHOLD = 500;
+const ROW_HEIGHT = 42;
 
 function emptyRow(): PreviewRow {
   return {
     external_code: "",
-    sender_name: "",
-    sender_phone: "",
-    sender_address: "",
+    receiver_store: "",
     receiver_name: "",
     receiver_phone: "",
     receiver_address: "",
-    weight: "",
-    piece_count: "",
-    temperature_level: "",
+    sku_code: "",
+    sku_name: "",
+    sku_qty: "",
+    sku_spec: "",
     remark: "",
   };
 }
@@ -52,6 +52,15 @@ function emptyRow(): PreviewRow {
 function getFieldLabel(key: string): string {
   const field = STANDARD_FIELDS.find((f) => f.key === key);
   return field ? field.label : key;
+}
+
+/** 判断行的收货模式 */
+function getRowGroup(row: PreviewRow): "group_a" | "group_b" | "none" {
+  const hasA = !!row.receiver_store?.trim();
+  const hasB = !!(row.receiver_name?.trim() || row.receiver_phone?.trim() || row.receiver_address?.trim());
+  if (hasA) return "group_a";
+  if (hasB) return "group_b";
+  return "none";
 }
 
 export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
@@ -87,6 +96,11 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const selectRef = useRef<HTMLSelectElement | null>(null);
 
+  // 虚拟滚动
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const useVirtual = rows.length > VIRTUAL_THRESHOLD;
+
   useEffect(() => {
     fetch("/api/orders/codes")
       .then((res) => res.json())
@@ -103,6 +117,21 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const pageStart = (safePage - 1) * PAGE_SIZE;
   const pageEnd = Math.min(pageStart + PAGE_SIZE, rows.length);
   const currentRows = useMemo(() => rows.slice(pageStart, pageEnd), [rows, pageStart, pageEnd]);
+
+  // 虚拟滚动计算
+  const visibleCount = useMemo(() => Math.ceil((scrollRef.current?.clientHeight || 600) / ROW_HEIGHT) + 4, [scrollRef.current?.clientHeight]);
+  const virtualStart = useMemo(() => {
+    if (!useVirtual) return 0;
+    return Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 2);
+  }, [useVirtual, scrollTop, ROW_HEIGHT]);
+  const virtualEnd = useMemo(() => {
+    if (!useVirtual) return 0;
+    return Math.min(rows.length, virtualStart + visibleCount);
+  }, [useVirtual, virtualStart, visibleCount, rows.length]);
+  const virtualRows = useMemo(() => {
+    if (!useVirtual) return [];
+    return rows.slice(virtualStart, virtualEnd);
+  }, [useVirtual, virtualStart, virtualEnd, rows]);
 
   const allErrors = useMemo(() => {
     const errMap: Record<number, string[]> = {};
@@ -123,7 +152,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const hasErrors = totalErrors > 0;
 
   const updateCell = useCallback(
-    (rowIndex: number, field: keyof PreviewRow, value: string) => {
+    (rowIndex: number, field: string, value: string) => {
       setRows((prev) => {
         const next = [...prev];
         next[rowIndex] = { ...next[rowIndex], [field]: value };
@@ -146,7 +175,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   }, []);
 
   const handleCellKeyDown = useCallback(
-    (e: React.KeyboardEvent, rowIndex: number, field: keyof PreviewRow, value: string) => {
+    (e: React.KeyboardEvent, rowIndex: number, field: string, value: string) => {
       if (e.key === "Enter") {
         e.preventDefault();
         updateCell(rowIndex, field, value);
@@ -190,6 +219,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rows }),
     });
+    if (!res.ok) return;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -225,10 +255,13 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
 
         const result = await res.json();
         if (result.success) {
-          totalSuccess += result.data.successCount;
-          totalFail += result.data.failCount;
-          if (result.data.errors?.length > 0) {
-            allErrors.push(...result.data.errors);
+          totalSuccess += result.data.insertedCount || 0;
+          totalFail += result.data.failedCount || 0;
+          if (result.data.failed?.length > 0) {
+            for (const f of result.data.failed) {
+              if (f.errors) allErrors.push(...f.errors);
+              else if (f.error) allErrors.push(f.error);
+            }
           }
         } else {
           totalFail += batchRows.length;
@@ -262,18 +295,18 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
     const allSucceeded = submitResult.failCount === 0;
     return (
       <div className="flex flex-col items-center justify-center py-16">
-        <div className={`text-5xl mb-4 ${allSucceeded ? "text-green-400" : "text-amber-400"}`}>
-          {allSucceeded ? "✅" : "⚠️"}
+        <div className={`text-5xl mb-4 ${allSucceeded ? "text-[var(--primary)]" : "text-amber-400"}`}>
+          {allSucceeded ? "✓" : "!"}
         </div>
         <h3 className="text-lg font-semibold text-white mb-4">提交完成</h3>
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 w-full max-w-sm mb-6">
+        <div className="card p-4 w-full max-w-sm mb-6" style={{ background: "var(--bg-card)" }}>
           <div className="flex justify-between items-center py-1.5">
             <span className="text-sm text-gray-400">提交总数</span>
             <span className="text-sm text-white font-medium">{submitResult.successCount + submitResult.failCount} 条</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-t border-white/5">
             <span className="text-sm text-gray-400">成功</span>
-            <span className="text-sm text-green-400 font-medium">{submitResult.successCount} 条</span>
+            <span className="text-sm text-[var(--primary)] font-medium">{submitResult.successCount} 条</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-t border-white/5">
             <span className="text-sm text-gray-400">失败</span>
@@ -302,14 +335,15 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           {allSucceeded ? (
             <button
               onClick={onBack}
-              className="px-6 py-2 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors text-sm"
+              className="btn btn-primary"
             >
               ↩ 继续导入
             </button>
           ) : (
             <button
               onClick={() => setSubmitResult(null)}
-              className="px-6 py-2 rounded-xl bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors text-sm"
+              className="btn btn-secondary"
+              style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
             >
               ↩ 返回修改
             </button>
@@ -328,7 +362,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
     <div className="flex flex-col min-h-0 h-full">
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
-          <h3 className="text-sm font-medium text-white">📋 数据预览与编辑</h3>
+          <h3 className="text-sm font-medium text-white">数据预览与编辑</h3>
           <p className="text-xs text-gray-400 mt-1">
             {rows.length > PAGE_SIZE
               ? `共 ${rows.length} 行，显示第 ${pageStart + 1}-${pageEnd} 行`
@@ -338,10 +372,10 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
             )}
             {hasErrors ? (
               <span className="text-red-400 ml-2 font-medium">
-                ❌ {totalErrors} 个错误待修复
+                ✗ {totalErrors} 个错误待修复
               </span>
             ) : rows.length > 0 ? (
-              <span className="text-green-400 ml-2">✅ 全部校验通过</span>
+              <span className="text-[var(--primary)] ml-2">✓ 全部校验通过</span>
             ) : null}
           </p>
         </div>
@@ -354,7 +388,8 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           </button>
           <button
             onClick={addRow}
-            className="text-xs px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ background: "var(--primary-bg)", color: "var(--primary)" }}
           >
             + 新增行
           </button>
@@ -362,7 +397,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
             onClick={handleExport}
             className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
           >
-            📥 导出
+            导出
           </button>
           <button
             onClick={handleSubmit}
@@ -370,20 +405,31 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
             className={`text-xs px-4 py-1.5 rounded-lg transition-colors ${
               hasErrors || submitting
                 ? "bg-gray-500/20 text-gray-500 cursor-not-allowed"
-                : "bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30"
+                : ""
             }`}
+            style={
+              !hasErrors && !submitting
+                ? { background: "var(--primary-bg)", color: "var(--primary)" }
+                : undefined
+            }
           >
             {submitting
               ? `提交中 ${submitProgress ? `${Math.round((submitProgress.completed / submitProgress.total) * 100)}%` : "..."}`
-              : "🚀 提交下单"}
+              : "提交下单"}
           </button>
         </div>
       </div>
 
       {submitting && submitProgress && (
-        <div className="mb-4 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
+        <div className="mb-4 p-4" style={{
+          background: "var(--primary-bg)",
+          border: "1px solid",
+          borderColor: "var(--primary)",
+          borderRadius: "var(--radius)",
+          opacity: 0.8,
+        }}>
           <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-indigo-400 font-medium">
+            <span style={{ color: "var(--primary)", fontWeight: 500 }}>
               正在提交数据
               {submitProgress.total > 1 && `（第 ${submitProgress.currentBatch}/${submitProgress.total} 批）`}
             </span>
@@ -393,8 +439,11 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           </div>
           <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${(submitProgress.completed / submitProgress.total) * 100}%` }}
+              className="h-full rounded-full transition-all duration-500 ease-out"
+              style={{
+                width: `${(submitProgress.completed / submitProgress.total) * 100}%`,
+                background: "linear-gradient(90deg, var(--primary), var(--primary-dark))",
+              }}
             />
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1.5">
@@ -433,21 +482,35 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         </div>
       )}
 
-      <div className="border border-white/10 rounded-xl overflow-hidden flex-1 min-h-0">
-        <div className="h-full overflow-auto">
+      {/* 表格区域 */}
+      <div
+        className="border border-white/10 rounded-xl overflow-hidden flex-1 min-h-0"
+        style={{ borderColor: "var(--border-color)" }}
+      >
+        <div
+          className="h-full overflow-auto"
+          ref={scrollRef}
+          onScroll={useVirtual ? (e) => setScrollTop((e.target as HTMLDivElement).scrollTop) : undefined}
+        >
           <table className="w-full text-xs border-collapse">
             <thead className="sticky top-0 z-20">
-              <tr className="bg-gray-800">
-                <th className="p-2 text-center text-gray-400 font-medium w-10 sticky left-0 bg-gray-800 z-30 border-r border-white/10">
+              <tr style={{ background: "var(--bg-card)" }}>
+                <th className="p-2 text-center text-gray-400 font-medium w-9 sticky left-0 z-30 border-r border-white/10"
+                    style={{ background: "var(--bg-card)" }}>
                   #
                 </th>
-                <th className="p-2 text-center text-gray-400 font-medium w-12 sticky left-10 bg-gray-800 z-30 border-r border-white/10">
+                <th className="p-2 text-center text-gray-400 font-medium w-10 sticky left-9 z-30 border-r border-white/10"
+                    style={{ background: "var(--bg-card)" }}>
                   操作
+                </th>
+                <th className="p-2 text-center text-gray-400 font-medium w-16 sticky left-[76px] z-30 border-r border-white/10"
+                    style={{ background: "var(--bg-card)" }}>
+                  模式
                 </th>
                 {STANDARD_FIELDS.map((f) => (
                   <th
                     key={f.key}
-                    className="p-2 text-left text-gray-300 font-medium whitespace-nowrap min-w-[140px] border-r border-white/5 last:border-r-0"
+                    className="p-2 text-left text-gray-300 font-medium whitespace-nowrap min-w-[120px] border-r border-white/5 last:border-r-0"
                   >
                     {f.label}
                     {f.required && <span className="text-red-400 ml-0.5">*</span>}
@@ -456,126 +519,70 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
               </tr>
             </thead>
             <tbody>
-              {currentRows.map((row, pi) => {
-                const rowIndex = pageStart + pi;
-                const rowErrors = allErrors[rowIndex] || [];
-                const hasRowError = rowErrors.length > 0;
+              {useVirtual ? (
+                <>
+                  <tr><td colSpan={STANDARD_FIELDS.length + 3} style={{ height: virtualStart * ROW_HEIGHT }} /></tr>
+                  {virtualRows.map((row, vi) => {
+                    const rowIndex = virtualStart + vi;
+                    const rowErrors = allErrors[rowIndex] || [];
+                    const hasRowError = rowErrors.length > 0;
+                    const group = getRowGroup(row);
 
-                return (
-                  <tr
-                    key={rowIndex}
-                    className={`border-t border-white/5 transition-colors ${
-                      hasRowError ? "bg-red-500/5" : "hover:bg-white/5"
-                    }`}
-                  >
-                    <td className="p-0 sticky left-0 bg-gray-900/95 z-10 border-r border-white/10">
-                      <div className="flex items-center justify-center h-full min-h-[36px]">
-                        {hasRowError ? (
-                          <span className="text-red-400 text-xs" title={rowErrors.join("\n")}>●</span>
-                        ) : (
-                          <span className="text-gray-500">{rowIndex + 1}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-0 sticky left-10 bg-gray-900/95 z-10 border-r border-white/10">
-                      <div className="flex items-center justify-center h-full min-h-[36px]">
-                        <button
-                          onClick={() => deleteRow(rowIndex)}
-                          className="text-red-400/70 hover:text-red-300 text-xs px-1"
-                          title="删除此行"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                    {STANDARD_FIELDS.map((f) => {
-                      const cellValue = row[f.key] || "";
-                      const cellError = rowErrors.find((e) => e.includes(f.label));
-                      const isError = !!cellError;
-                      const isHovered = hoveredCell?.row === rowIndex && hoveredCell?.field === f.key;
-                      const isEditing = editingCell?.row === rowIndex && editingCell?.field === f.key;
+                    return (
+                      <RowComp
+                        key={rowIndex}
+                        row={row}
+                        rowIndex={rowIndex}
+                        rowErrors={rowErrors}
+                        hasRowError={hasRowError}
+                        group={group}
+                        hoveredCell={hoveredCell}
+                        editingCell={editingCell}
+                        setHoveredCell={setHoveredCell}
+                        updateCell={updateCell}
+                        deleteRow={deleteRow}
+                        startEditing={startEditing}
+                        confirmEditing={confirmEditing}
+                        handleCellKeyDown={handleCellKeyDown}
+                        inputRef={inputRef}
+                        selectRef={selectRef}
+                      />
+                    );
+                  })}
+                  <tr><td colSpan={STANDARD_FIELDS.length + 3} style={{ height: (rows.length - virtualEnd) * ROW_HEIGHT }} /></tr>
+                </>
+              ) : (
+                currentRows.map((row, pi) => {
+                  const rowIndex = pageStart + pi;
+                  const rowErrors = allErrors[rowIndex] || [];
+                  const hasRowError = rowErrors.length > 0;
+                  const group = getRowGroup(row);
 
-                      return (
-                        <td
-                          key={f.key}
-                          className={`p-1 border-r border-white/5 last:border-r-0 relative ${
-                            isError ? "bg-red-500/10" : ""
-                          } ${!isEditing ? "" : ""}`}
-                          onMouseEnter={() => setHoveredCell({ row: rowIndex, field: f.key })}
-                          onMouseLeave={() => setHoveredCell(null)}
-                          onDoubleClick={() => !isEditing && startEditing(rowIndex, f.key)}
-                        >
-                          {isError && isHovered && (
-                            <div
-                              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-red-600 text-white text-[11px] rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none"
-                              style={{ maxWidth: "400px" }}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span>⚠</span>
-                                <span>{cellError}</span>
-                              </div>
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600" />
-                            </div>
-                          )}
-                          {isEditing ? (
-                            f.key === "temperature_level" ? (
-                              <select
-                                ref={selectRef}
-                                value={cellValue}
-                                onChange={(e) => updateCell(rowIndex, f.key as keyof PreviewRow, e.target.value)}
-                                onBlur={confirmEditing}
-                                onKeyDown={(e) => handleCellKeyDown(e, rowIndex, f.key as keyof PreviewRow, cellValue)}
-                                className={`w-full bg-gray-800 border rounded-md px-2 py-1.5 outline-none transition-colors text-gray-200 ${
-                                  isError
-                                    ? "border-red-400"
-                                    : "border-indigo-400"
-                                }`}
-                              >
-                                <option value="">— 选择 —</option>
-                                {TEMPERATURE_OPTIONS.map((opt) => (
-                                  <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                ref={inputRef}
-                                value={cellValue}
-                                onChange={(e) => updateCell(rowIndex, f.key as keyof PreviewRow, e.target.value)}
-                                onBlur={confirmEditing}
-                                onKeyDown={(e) => handleCellKeyDown(e, rowIndex, f.key as keyof PreviewRow, cellValue)}
-                                placeholder={f.required ? "必填" : ""}
-                                className={`w-full bg-gray-800 border rounded-md px-2 py-1.5 outline-none transition-colors text-gray-200 ${
-                                  isError
-                                    ? "border-red-400 text-red-200 placeholder-red-400/50"
-                                    : "border-indigo-400"
-                                }`}
-                              />
-                            )
-                          ) : (
-                            <div
-                              className={`px-2 py-1.5 min-h-[36px] flex items-center rounded-md transition-colors ${
-                                isError
-                                  ? "text-red-200"
-                                  : "text-gray-200"
-                              } ${isHovered ? "bg-white/5" : ""}`}
-                            >
-                              <span className={`truncate ${!cellValue ? "text-gray-600" : ""}`}>
-                                {cellValue || (f.required ? "（必填）" : "-")}
-                              </span>
-                              {isHovered && (
-                                <span className="ml-auto text-gray-600 text-[10px] shrink-0 pl-2">双击编辑</span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              {currentRows.length === 0 && (
+                  return (
+                    <RowComp
+                      key={rowIndex}
+                      row={row}
+                      rowIndex={rowIndex}
+                      rowErrors={rowErrors}
+                      hasRowError={hasRowError}
+                      group={group}
+                      hoveredCell={hoveredCell}
+                      editingCell={editingCell}
+                      setHoveredCell={setHoveredCell}
+                      updateCell={updateCell}
+                      deleteRow={deleteRow}
+                      startEditing={startEditing}
+                      confirmEditing={confirmEditing}
+                      handleCellKeyDown={handleCellKeyDown}
+                      inputRef={inputRef}
+                      selectRef={selectRef}
+                    />
+                  );
+                })
+              )}
+              {currentRows.length === 0 && !useVirtual && (
                 <tr>
-                  <td colSpan={STANDARD_FIELDS.length + 2} className="p-8 text-center text-gray-500 text-sm">
+                  <td colSpan={STANDARD_FIELDS.length + 3} className="p-8 text-center text-gray-500 text-sm">
                     暂无数据
                   </td>
                 </tr>
@@ -585,6 +592,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         </div>
       </div>
 
+      {/* 分页 */}
       <div className="flex items-center justify-between mt-4 shrink-0">
         <div className="text-xs text-gray-500">
           {rows.length > 0 && (
@@ -592,7 +600,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {totalPages > 1 && (
+          {totalPages > 1 && !useVirtual && (
             <>
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -628,7 +636,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
               </span>
             </>
           )}
-          {totalPages <= 1 && (
+          {totalPages <= 1 && !useVirtual && (
             <button
               onClick={addRow}
               className="text-xs px-4 py-2 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
@@ -639,5 +647,141 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ===== 行渲染子组件（减少重复代码） =====
+interface RowCompProps {
+  row: PreviewRow;
+  rowIndex: number;
+  rowErrors: string[];
+  hasRowError: boolean;
+  group: "group_a" | "group_b" | "none";
+  hoveredCell: { row: number; field: string } | null;
+  editingCell: { row: number; field: string } | null;
+  setHoveredCell: (v: { row: number; field: string } | null) => void;
+  updateCell: (rowIndex: number, field: string, value: string) => void;
+  deleteRow: (index: number) => void;
+  startEditing: (rowIndex: number, field: string) => void;
+  confirmEditing: () => void;
+  handleCellKeyDown: (e: React.KeyboardEvent, rowIndex: number, field: string, value: string) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  selectRef: React.RefObject<HTMLSelectElement | null>;
+}
+
+function RowComp({
+  row, rowIndex, rowErrors, hasRowError, group,
+  hoveredCell, editingCell, setHoveredCell,
+  updateCell, deleteRow, startEditing, confirmEditing,
+  handleCellKeyDown, inputRef, selectRef,
+}: RowCompProps) {
+  const groupLabel = group === "group_a" ? "A组" : group === "group_b" ? "B组" : "-";
+  const groupColor = group === "group_a" ? "var(--primary)" : group === "group_b" ? "#f59e0b" : "var(--text-muted)";
+
+  return (
+    <tr
+      className={`border-t border-white/5 transition-colors ${
+        hasRowError ? "bg-red-500/5" : "hover:bg-white/5"
+      }`}
+    >
+      {/* 行号 */}
+      <td className="p-0 sticky left-0 z-10 border-r border-white/10"
+          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
+        <div className="flex items-center justify-center h-full min-h-[36px]">
+          {hasRowError ? (
+            <span className="text-red-400 text-xs" title={rowErrors.join("\n")}>●</span>
+          ) : (
+            <span className="text-gray-500">{rowIndex + 1}</span>
+          )}
+        </div>
+      </td>
+      {/* 操作 */}
+      <td className="p-0 sticky left-9 z-10 border-r border-white/10"
+          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
+        <div className="flex items-center justify-center h-full min-h-[36px]">
+          <button
+            onClick={() => deleteRow(rowIndex)}
+            className="text-red-400/70 hover:text-red-300 text-xs px-1"
+            title="删除此行"
+          >
+            ✕
+          </button>
+        </div>
+      </td>
+      {/* A/B 组标记 */}
+      <td className="p-0 sticky left-[76px] z-10 border-r border-white/10"
+          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
+        <div className="flex items-center justify-center h-full min-h-[36px]">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                style={{
+                  color: groupColor,
+                  border: `1px solid ${groupColor}`,
+                  opacity: group === "none" ? 0.3 : 0.8,
+                }}>
+            {groupLabel}
+          </span>
+        </div>
+      </td>
+      {/* 标准字段列 */}
+      {STANDARD_FIELDS.map((f) => {
+        const cellValue = row[f.key] || "";
+        const cellError = rowErrors.find((e) => e.includes(f.label));
+        const isError = !!cellError;
+        const isHovered = hoveredCell?.row === rowIndex && hoveredCell?.field === f.key;
+        const isEditing = editingCell?.row === rowIndex && editingCell?.field === f.key;
+
+        return (
+          <td
+            key={f.key}
+            className={`p-1 border-r border-white/5 last:border-r-0 relative ${
+              isError ? "bg-red-500/10" : ""
+            }`}
+            onMouseEnter={() => setHoveredCell({ row: rowIndex, field: f.key })}
+            onMouseLeave={() => setHoveredCell(null)}
+            onDoubleClick={() => !isEditing && startEditing(rowIndex, f.key)}
+          >
+            {isError && isHovered && (
+              <div
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-red-600 text-white text-[11px] rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none"
+                style={{ maxWidth: "400px" }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>!</span>
+                  <span>{cellError}</span>
+                </div>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600" />
+              </div>
+            )}
+            {isEditing ? (
+              <input
+                ref={inputRef}
+                value={cellValue}
+                onChange={(e) => updateCell(rowIndex, f.key, e.target.value)}
+                onBlur={confirmEditing}
+                onKeyDown={(e) => handleCellKeyDown(e, rowIndex, f.key, cellValue)}
+                placeholder={f.required ? "必填" : ""}
+                className={`w-full bg-gray-800 border rounded-md px-2 py-1.5 outline-none transition-colors text-gray-200 ${
+                  isError ? "border-red-400 text-red-200 placeholder-red-400/50" : ""
+                }`}
+                style={!isError ? { borderColor: "var(--primary)" } : undefined}
+              />
+            ) : (
+              <div
+                className={`px-2 py-1.5 min-h-[36px] flex items-center rounded-md transition-colors ${
+                  isError ? "text-red-200" : "text-gray-200"
+                } ${isHovered ? "bg-white/5" : ""}`}
+              >
+                <span className={`truncate ${!cellValue ? "text-gray-600" : ""}`}>
+                  {cellValue || (f.required ? "（必填）" : "-")}
+                </span>
+                {isHovered && (
+                  <span className="ml-auto text-gray-600 text-[10px] shrink-0 pl-2">双击编辑</span>
+                )}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
   );
 }

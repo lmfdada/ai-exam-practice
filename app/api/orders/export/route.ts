@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     worksheet.columns = STANDARD_FIELDS.map((f) => ({
       header: f.label,
       key: f.key,
-      width: f.key === "remark" ? 30 : f.key === "sender_address" || f.key === "receiver_address" ? 40 : 18,
+      width: f.key === "remark" ? 30 : f.key === "receiver_address" ? 40 : 18,
     }));
 
     const headerRow = worksheet.getRow(1);

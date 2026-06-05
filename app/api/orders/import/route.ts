@@ -1,297 +1,474 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { autoDetectMapping, computeFingerprint, FIELD_KEYWORDS } from "@/lib/orders";
+import mammoth from "mammoth";
+import { autoDetectMapping, computeFingerprint } from "@/lib/orders";
+import { executeRule } from "@/lib/rules";
+import type { ParseRule, ParseContext } from "@/lib/rules";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_HEADER_SCAN_ROWS = 8;
+// ===== 配置 =====
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_EXTS = [".xlsx", ".xls", ".docx", ".pdf"];
+const SKIP_SHEET_KEYWORDS = ["说明", "目录", "封面", "template", "readme"];
 
-const DESCRIPTION_MARKERS = ["说明", "注意", "备注：", "提示"];
+// ===== 表头检测 =====
+const KNOWN_HEADER_KEYWORDS = [
+  "编码", "名称", "数量", "门店", "地址", "电话", "手机", "姓名",
+  "SKU", "规格", "备注", "单号", "订单", "配送", "收货",
+  "序号", "编号", "货号", "品名", "物料", "仓库",
+];
 
-function isDescriptionRow(row: ExcelJS.Row): boolean {
-  let nonEmptyCount = 0;
-  let markerCount = 0;
-  row.eachCell({ includeEmpty: false }, (cell) => {
-    const val = String(cell.value || "").trim().toLowerCase();
-    if (val) {
-      nonEmptyCount++;
-      if (DESCRIPTION_MARKERS.some((m) => val.includes(m))) {
-        markerCount++;
-      }
+function scoreRow(row: string[]): number {
+  let score = 0;
+  for (const cell of row) {
+    const s = String(cell || "").trim();
+    if (s.length > 10) continue;
+    for (const kw of KNOWN_HEADER_KEYWORDS) {
+      if (s.includes(kw)) { score++; break; }
     }
-  });
-  if (nonEmptyCount === 0) return false;
-  return markerCount / nonEmptyCount > 0.3;
-}
-
-function getRowCells(row: ExcelJS.Row, maxCols: number): string[] {
-  const values: string[] = [];
-  for (let col = 1; col <= maxCols; col++) {
-    const cell = row.getCell(col);
-    const val = cell.value !== null && cell.value !== undefined ? String(cell.value).trim() : "";
-    values.push(val);
+    if (s.length > 0 && s.length <= 15) score += 0.5;
   }
-  return values;
+  return score;
 }
 
-function isRowEmpty(cells: string[]): boolean {
-  return cells.every((v) => !v);
-}
-
-function calcHeaderScore(cells: string[]): number {
-  const nonEmpty = cells.filter((v) => v.length > 0);
-  if (nonEmpty.length < 3) return -1;
-
-  const uniqueValues = new Set(nonEmpty);
-  const uniquenessRatio = uniqueValues.size / nonEmpty.length;
-  if (uniquenessRatio < 0.5) return -1;
-
-  let keywordHits = 0;
-  const allKeywords = Object.values(FIELD_KEYWORDS).flat();
-  for (const cell of nonEmpty) {
-    const cellLower = cell.toLowerCase();
-    for (const kw of allKeywords) {
-      if (cellLower.includes(kw.toLowerCase())) {
-        keywordHits++;
-        break;
-      }
-    }
-  }
-
-  const keywordScore = keywordHits / nonEmpty.length;
-  return uniquenessRatio * 0.4 + keywordScore * 0.6;
-}
-
-function detectHeaderRow(worksheet: ExcelJS.Worksheet): { rowNumber: number; headers: string[] } {
-  const maxCols = worksheet.columnCount;
-  let bestRow = 1;
-  let bestHeaders: string[] = [];
+function detectHeaderRow(rows: string[][]): number {
+  let bestRow = 0;
   let bestScore = -1;
-
-  const maxScan = Math.min(MAX_HEADER_SCAN_ROWS, worksheet.rowCount);
-
-  for (let rowNum = 1; rowNum <= maxScan; rowNum++) {
-    const row = worksheet.getRow(rowNum);
-    const cells = getRowCells(row, maxCols);
-
-    if (isRowEmpty(cells)) continue;
-    if (isDescriptionRow(row)) continue;
-
-    const score = calcHeaderScore(cells);
+  for (let i = 0; i < rows.length; i++) {
+    const score = scoreRow(rows[i]);
     if (score > bestScore) {
       bestScore = score;
-      bestRow = rowNum;
-      bestHeaders = cells.filter((v) => v.length > 0);
+      bestRow = i;
+    }
+  }
+  return bestRow;
+}
+
+/** 尝试将文本按分隔符解析为行列结构 */
+function parseTextToRows(text: string): string[][] {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // 尝试检测分隔符：tab 优先，其次多空格
+  const tabCount = lines.reduce((sum, l) => sum + (l.includes("\t") ? 1 : 0), 0);
+  const delimiter: string | RegExp = tabCount >= lines.length * 0.3 ? "\t" : /\s{2,}/;
+
+  const rows: string[][] = [];
+  for (const line of lines) {
+    const cells = line.split(delimiter).map((c) => c.trim()).filter(Boolean);
+    if (cells.length > 1) {
+      rows.push(cells);
+    }
+  }
+  return rows;
+}
+
+// ===== 解析 Excel =====
+interface ParsedSheet {
+  sourceName: string;
+  headers: string[];
+  /** 数据行（表头之后） */
+  rawRows: string[][];
+  /** 全量原始行（含表头及上方信息行） */
+  fullRows: string[][];
+  rowCount: number;
+}
+
+const cellValue = (v: unknown): string => {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    // Rich text with text property
+    if (typeof obj.text === "string") return obj.text;
+    // Hyperlink
+    if (typeof obj.hyperlink === "string") return obj.hyperlink;
+    // Rich text array - extract combined text
+    if (Array.isArray(obj.richText)) {
+      return obj.richText.map((rt: Record<string, unknown>) => String(rt.text ?? "")).join("");
+    }
+    // Structured reference or unknown internal object
+    return "";
+  }
+  return String(v);
+};
+
+async function parseExcelSheets(
+  buffer: ArrayBuffer,
+  rule?: ParseRule
+): Promise<ParsedSheet[]> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const allSheets = workbook.worksheets.filter(
+    (ws) => !SKIP_SHEET_KEYWORDS.some((sk) => ws.name.includes(sk))
+  );
+  if (allSheets.length === 0) {
+    throw new Error("Excel 文件中没有包含数据的工作表");
+  }
+
+  let targetSheets = allSheets;
+  if (rule?.config?.sheets) {
+    if (rule.config.sheets === "all") {
+      targetSheets = allSheets;
+    } else if (Array.isArray(rule.config.sheets)) {
+      targetSheets = rule.config.sheets
+        .map((i: number) => allSheets[i])
+        .filter(Boolean) as ExcelJS.Worksheet[];
+      if (targetSheets.length === 0) targetSheets = [allSheets[0]];
+    } else {
+      targetSheets = [allSheets[0]];
+    }
+  } else {
+    targetSheets = [allSheets.reduce((a, b) => (a.rowCount >= b.rowCount ? a : b))];
+  }
+
+  const result: ParsedSheet[] = [];
+
+  for (const ws of targetSheets) {
+    const rows: string[][] = [];
+    ws.eachRow((excelRow) => {
+      const cells: string[] = [];
+      excelRow.eachCell((c) => { cells.push(cellValue(c.value)); });
+      rows.push(cells);
+    });
+    if (rows.length === 0) continue;
+
+    const headerRow = rule?.config?.headerDetection === "auto" || !rule
+      ? detectHeaderRow(rows)
+      : typeof rule?.config?.headerDetection === "object" && "row" in rule.config.headerDetection
+        ? rule.config.headerDetection.row
+        : detectHeaderRow(rows);
+
+    const rawHeaders = rows[headerRow]?.map((h) => String(h || "").trim()) || [];
+    const skipBefore = rule?.config?.skipRowsBeforeHeader ?? 0;
+    const dataRows = rows.slice(skipBefore || headerRow + 1)
+      .filter((r) => r.some((c) => String(c || "").trim() !== ""));
+
+    result.push({
+      sourceName: ws.name,
+      headers: rawHeaders,
+      rawRows: dataRows,
+      fullRows: rows,
+      rowCount: dataRows.length,
+    });
+  }
+
+  return result;
+}
+
+// ===== 解析 Word (.docx) =====
+async function parseDocx(
+  buffer: ArrayBuffer,
+): Promise<{ headers: string[]; dataRows: string[][]; rowCount: number }> {
+  const result = await mammoth.extractRawText({ buffer: Buffer.from(buffer) });
+  const text = result.value;
+
+  const rows = parseTextToRows(text);
+  if (rows.length === 0) {
+    throw new Error("未能从 Word 文件中提取到有效的表格数据");
+  }
+
+  const headerRow = detectHeaderRow(rows);
+  const headers = rows[headerRow]?.map((h) => String(h || "").trim()) || [];
+  const dataRows = rows.slice(headerRow + 1).filter((r) => r.some((c) => String(c || "").trim() !== ""));
+
+  return { headers, dataRows, rowCount: dataRows.length };
+}
+
+// ===== 解析 PDF (直接使用 pdfjs-dist，绕过 @napi-rs/canvas 依赖) =====
+async function parsePdf(
+  buffer: ArrayBuffer,
+): Promise<{ headers: string[]; dataRows: string[][]; rowCount: number }> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { getData } = await import("pdf-parse/worker");
+  pdfjs.GlobalWorkerOptions.workerSrc = getData();
+
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const doc = await loadingTask.promise;
+
+  // 收集所有文本 items，按 hasEOL 分行
+  const lines: { items: { str: string; x: number }[] }[] = [];
+  let currentLineItems: { str: string; x: number }[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const textContent = await page.getTextContent();
+    for (const item of textContent.items as Array<Record<string, unknown>>) {
+      if (typeof item.str === "string" && item.transform) {
+        const x = (item.transform as number[])[4];
+        currentLineItems.push({ str: item.str, x });
+        if (item.hasEOL) {
+          lines.push({ items: [...currentLineItems].sort((a, b) => a.x - b.x) });
+          currentLineItems = [];
+        }
+      }
+    }
+    if (currentLineItems.length > 0) {
+      lines.push({ items: [...currentLineItems].sort((a, b) => a.x - b.x) });
+    }
+    page.cleanup();
+  }
+  await doc.destroy();
+
+  // 将每行转为可读文本（用于表头检测和元数据过滤）
+  const lineTexts = lines.map((l) => l.items.map((i) => i.str).join(" ").trim());
+
+  // 元数据前缀列表（行内容以此开头则跳过）
+  const metadataPrefixes = [
+    "单据编号", "单据状态", "复审状态", "分拣状态", "制单日期",
+    "创建人", "发货人", "收货人", "打印时间", "订货单位",
+    "是否", "需要", "订单日期", "备注", "第", "收货机构", "供货机构",
+    "送货机构", "业务模式", "配送重量", "发货操作时间", "期望",
+    "预计发货", "期望到货", "发货日期",
+    "收货地址", "打印次数", "物品类别", "黔寨寨",
+  ];
+
+  // 第一步：找到表头行（在有内容的行中按关键词评分）
+  const scoredRows: { index: number; text: string; items: { str: string; x: number }[] }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const text = lineTexts[i];
+    if (!text || metadataPrefixes.some((p) => text.startsWith(p))) continue;
+    const nonSpaceItems = lines[i].items.filter((it) => it.str.trim().length > 0);
+    if (nonSpaceItems.length < 2) continue;
+    const score = scoreRow(nonSpaceItems.map((it) => it.str));
+    if (score > 0) {
+      scoredRows.push({ index: i, text, items: nonSpaceItems });
     }
   }
 
-  return { rowNumber: bestRow, headers: bestHeaders };
+  if (scoredRows.length === 0) {
+    throw new Error("未能从 PDF 文件中识别到表格表头");
+  }
+
+  // 最高分的行作为表头行
+  scoredRows.sort((a, b) => {
+    const sa = scoreRow(a.items.map((i) => i.str));
+    const sb = scoreRow(b.items.map((i) => i.str));
+    return sb - sa;
+  });
+  const headerLine = scoredRows[0];
+  const rawHeaders = headerLine.items.map((i) => i.str.trim());
+  const headers = rawHeaders.filter((h) => h.length > 0);
+
+  // 用表头列的 x 坐标定义列边界（使用中间点分割）
+  const headerItems = headerLine.items;
+  const colBoundaries: { name: string; minX: number; maxX: number }[] = [];
+  for (let j = 0; j < headerItems.length; j++) {
+    const name = headerItems[j].str.trim();
+    if (!name) continue;
+    // 列边界：使用相邻表头 x 的中间点作为分界线
+    const minX = j === 0 ? 0 : (headerItems[j].x + headerItems[j - 1].x) / 2;
+    const maxX =
+      j < headerItems.length - 1
+        ? (headerItems[j + 1].x + headerItems[j].x) / 2
+        : headerItems[j].x + 200;
+    colBoundaries.push({ name, minX, maxX });
+  }
+
+  // ===== 合并被 hasEOL 截断的连续行 =====
+  // 判断下一行是否为上一行的续行：下一行的第一个非空 item 在很左边（x < 40）但内容是空字符串，
+  // 或下一行没有"序号"位置（x < 40）的数字项
+  function isContinuationLine(_prevItems: { str: string; x: number }[], nextItems: { str: string; x: number }[]): boolean {
+    const nextNonEmpty = nextItems.filter((it) => it.str.trim().length > 0);
+    if (nextNonEmpty.length === 0) return true;
+    // 检查下一行在"序号"位置（x < 40）是否有数字
+    const hasSeqNum = nextNonEmpty.some((it) => it.x < 40 && /^\d+$/.test(it.str.trim()));
+    if (hasSeqNum) return false;
+    // 如果下一行的 items 都集中在右半部分（x > 第2个表头的中间点），则是续行
+    const rightThreshold = headerItems.length > 2 ? (headerItems[1].x + headerItems[0].x) / 2 : 80;
+    return nextNonEmpty.every((it) => it.x > rightThreshold) && nextNonEmpty.length <= 3;
+  }
+
+  // 合并连续行
+  const mergedLines: { items: { str: string; x: number }[]; text: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0 && isContinuationLine(lines[i - 1].items, lines[i].items)) {
+      // 合并到上一行
+      const prev = mergedLines[mergedLines.length - 1];
+      const mergedItems = [...prev.items, ...lines[i].items].sort((a, b) => a.x - b.x);
+      prev.items = mergedItems;
+      prev.text = mergedItems.map((it) => it.str).join(" ").trim();
+    } else {
+      mergedLines.push({
+        items: [...lines[i].items],
+        text: lineTexts[i],
+      });
+    }
+  }
+  const mergedLineTexts = mergedLines.map((l) => l.text);
+  // 更新 headerLine.index 到合并后的行索引
+  let mergedHeaderIndex = -1;
+  for (let i = 0; i < mergedLines.length; i++) {
+    if (mergedLines[i].items === headerLine.items ||
+        mergedLines[i].text === headerLine.text) {
+      mergedHeaderIndex = i;
+      break;
+    }
+  }
+
+  // 为每一行分配列
+  const tableRows: string[][] = [];
+  for (let i = 0; i < mergedLines.length; i++) {
+    const text = mergedLineTexts[i];
+    if (i === mergedHeaderIndex) continue;
+    if (!text || metadataPrefixes.some((p) => text.startsWith(p))) continue;
+    if (/^\d+$/.test(text.trim())) continue;
+
+    const nonSpaceItems = mergedLines[i].items.filter((it) => it.str.trim().length > 0);
+    if (nonSpaceItems.length < 1) continue;
+
+    // 为每个列位置收集文本
+    const cellTexts: string[] = new Array(colBoundaries.length).fill("");
+    for (const item of nonSpaceItems) {
+      const colIdx = colBoundaries.findIndex(
+        (b) => item.x >= b.minX && item.x < b.maxX,
+      );
+      if (colIdx >= 0) {
+        cellTexts[colIdx] = (cellTexts[colIdx] + " " + item.str).trim();
+      }
+    }
+
+    // 至少有一个非空列即保留（不再要求 >= 2）
+    const filledCells = cellTexts.filter((c) => c.length > 0);
+    if (filledCells.length >= 1) {
+      // 过滤合计行（"合"/"计"单独出现，或只有数字+合计）
+      const isSummary = filledCells.every((c) => /^[\d\s合计]*$/.test(c.trim()));
+      if (isSummary && filledCells.some((c) => /^[合计]+$/.test(c.trim()))) {
+        continue;
+      }
+      tableRows.push(cellTexts);
+    }
+  }
+
+  if (tableRows.length === 0) {
+    throw new Error("未能从 PDF 文件中提取到有效的表格数据");
+  }
+
+  const dataRows = tableRows.filter((r) =>
+    r.some((c) => c.trim().length > 0),
+  );
+
+  return { headers, dataRows, rowCount: dataRows.length };
 }
 
+// ===== POST 处理 =====
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const file = formData.get("file") as File;
+    const ruleJson = formData.get("rule") as string | null;
 
     if (!file) {
       return NextResponse.json({ success: false, message: "请上传文件" }, { status: 400 });
     }
 
-    if (file.size === 0) {
-      return NextResponse.json(
-        { success: false, message: "文件为空，请选择有效的 Excel 文件" },
-        { status: 400 }
-      );
-    }
-
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { success: false, message: `文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大支持 10MB` },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "文件大小超过 10MB 限制" }, { status: 400 });
     }
 
-    const name = file.name.toLowerCase();
-    if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
-      return NextResponse.json(
-        { success: false, message: `不支持的文件格式 ".${name.split(".").pop()}"，仅支持 .xlsx / .xls 文件` },
-        { status: 400 }
-      );
+    const nameLower = file.name.toLowerCase();
+    const ext = nameLower.slice(nameLower.lastIndexOf("."));
+    if (!ALLOWED_EXTS.includes(ext)) {
+      return NextResponse.json({ success: false, message: `不支持的文件格式 "${ext}"，仅支持 ${ALLOWED_EXTS.join(", ")}` }, { status: 400 });
     }
 
-    let buffer: ArrayBuffer;
-    try {
-      buffer = await file.arrayBuffer();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "文件读取失败，文件可能已损坏或存在编码异常，请确认文件为有效的 Excel 格式" },
-        { status: 400 }
-      );
-    }
-
-    if (buffer.byteLength === 0) {
-      return NextResponse.json(
-        { success: false, message: "文件内容为空，请检查文件" },
-        { status: 400 }
-      );
-    }
-
-    const headerBytes = new Uint8Array(buffer.slice(0, 8));
-    const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
-    const isXls = file.name.toLowerCase().endsWith(".xls");
-
-    // .xlsx = ZIP format (PK\x03\x04), .xls = OLE2 format (D0\xCF\x11\xE0)
-    const zipHeader = headerBytes[0] === 0x50 && headerBytes[1] === 0x4B &&
-      (headerBytes[2] === 0x03 || headerBytes[2] === 0x05 || headerBytes[2] === 0x07);
-    const ole2Header = headerBytes[0] === 0xD0 && headerBytes[1] === 0xCF &&
-      headerBytes[2] === 0x11 && headerBytes[3] === 0xE0;
-
-    if (isXlsx && !zipHeader) {
-      const isUtf16Bom = (headerBytes[0] === 0xFF && headerBytes[1] === 0xFE) ||
-        (headerBytes[0] === 0xFE && headerBytes[1] === 0xFF);
-      const isHtml = headerBytes[0] === 0x3C &&
-        (headerBytes[1] === 0x68 || headerBytes[1] === 0x48 || headerBytes[1] === 0x21);
-      const isCsv = headerBytes[0] === 0xEF && headerBytes[1] === 0xBB && headerBytes[2] === 0xBF;
-
-      if (isHtml) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 似乎是 HTML 格式（可能从网页直接保存），请另存为真正的 Excel 文件（.xlsx）后再上传`,
-        }, { status: 400 });
-      }
-      if (isCsv) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 似乎是 CSV 文件（含 BOM 头），请将文件另存为 .xlsx 格式后再上传`,
-        }, { status: 400 });
-      }
-      if (isUtf16Bom) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 编码异常：检测到 UTF-16 BOM 头，请将文件另存为 UTF-8 编码的 .xlsx 格式后再上传`,
-        }, { status: 400 });
-      }
-      return NextResponse.json({
-        success: false,
-        message: `文件 "${file.name}" 格式不正确，文件头不匹配有效的 Excel 格式，请确认文件未被损坏`,
-      }, { status: 400 });
-    }
-
-    if (isXls && !ole2Header) {
-      return NextResponse.json({
-        success: false,
-        message: `文件 "${file.name}" 不是有效的 .xls 格式（OLE2），文件可能已损坏或编码异常`,
-      }, { status: 400 });
-    }
-
-    let workbook: ExcelJS.Workbook;
-    try {
-      workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer);
-    } catch (parseError) {
-      const errMsg = String(parseError);
-      if (errMsg.includes("Invalid")) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 解析失败：文件结构无效，可能已损坏或不是有效的 Excel 文件`,
-        }, { status: 400 });
-      }
-      if (errMsg.includes("password") || errMsg.includes("encrypt")) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 已加密/有密码保护，请先解密后再上传`,
-        }, { status: 400 });
-      }
-      if (errMsg.includes("zip") || errMsg.includes("ZIP")) {
-        return NextResponse.json({
-          success: false,
-          message: `文件 "${file.name}" 压缩数据损坏，请重新生成 Excel 文件后再上传`,
-        }, { status: 400 });
-      }
-      return NextResponse.json({
-        success: false,
-        message: `文件 "${file.name}" 解析失败，请确认文件为有效的 Excel 文件（.xlsx / .xls）且未被损坏`,
-      }, { status: 400 });
-    }
-
-    if (workbook.worksheets.length === 0) {
-      return NextResponse.json(
-        { success: false, message: `文件 "${file.name}" 中没有工作表，请检查文件内容` },
-        { status: 400 }
-      );
-    }
-
-    const INSTRUCTION_SHEET_NAMES = ["说明", "使用说明", "填写说明", "help", "readme", "instructions"];
-
-    interface SheetCandidate {
-      worksheet: ExcelJS.Worksheet;
-      headerRow: number;
-      headers: string[];
-      score: number;
-    }
-    const candidates: SheetCandidate[] = [];
-
-    for (const ws of workbook.worksheets) {
-      const nameLower = ws.name.toLowerCase();
-      const isInstructionSheet = INSTRUCTION_SHEET_NAMES.some((n) => nameLower.includes(n));
-      if (isInstructionSheet) continue;
-      if (ws.rowCount < 2) continue;
-
-      const result = detectHeaderRow(ws);
-      if (result.headers.length > 0) {
-        candidates.push({
-          worksheet: ws,
-          headerRow: result.rowNumber,
-          headers: result.headers,
-          score: calcHeaderScore(result.headers),
-        });
+    let rule: ParseRule | undefined;
+    if (ruleJson) {
+      try {
+        rule = JSON.parse(ruleJson) as ParseRule;
+      } catch {
+        // 规则解析失败，忽略
       }
     }
 
-    if (candidates.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "无法识别数据工作表，请检查文件格式" },
-        { status: 400 }
-      );
+    const buffer = await file.arrayBuffer();
+
+    // ===== 按格式解析 =====
+    let allHeaders: string[] = [];
+    let allDataRows: Record<string, string>[] = [];
+    let rowCount = 0;
+
+    if (ext === ".xlsx" || ext === ".xls") {
+      const parsedSheets = await parseExcelSheets(buffer, rule);
+
+      if (rule) {
+        // 有规则：对每个 sheet 执行 executeRule（包含列映射 + 后处理器）
+        for (const sheet of parsedSheets) {
+          const context: ParseContext = {
+            rawRows: sheet.rawRows,
+            rawHeaders: sheet.headers,
+            sourceName: sheet.sourceName,
+            fullRows: sheet.fullRows,
+          };
+          const result = executeRule(rule, context);
+          allDataRows.push(...result.rows);
+        }
+        if (allDataRows.length > 0) {
+          allHeaders = Object.keys(allDataRows[0]);
+        }
+        rowCount = allDataRows.length;
+      } else {
+        // 无规则：使用所有 sheet 的数据行合并
+        for (const sheet of parsedSheets) {
+          allDataRows.push(
+            ...sheet.rawRows.map((row) => {
+              const mapped: Record<string, string> = {};
+              sheet.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+              return mapped;
+            })
+          );
+        }
+        if (allDataRows.length > 0) {
+          allHeaders = Object.keys(allDataRows[0]);
+        }
+        rowCount = allDataRows.length;
+      }
+    } else if (ext === ".docx") {
+      const docxResult = await parseDocx(buffer);
+      allHeaders = docxResult.headers;
+      allDataRows = docxResult.dataRows.map((row) => {
+        const mapped: Record<string, string> = {};
+        docxResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+        return mapped;
+      });
+      rowCount = docxResult.rowCount;
+    } else if (ext === ".pdf") {
+      const pdfResult = await parsePdf(buffer);
+      allHeaders = pdfResult.headers;
+      allDataRows = pdfResult.dataRows.map((row) => {
+        const mapped: Record<string, string> = {};
+        pdfResult.headers.forEach((h, i) => { mapped[h] = row[i] || ""; });
+        return mapped;
+      });
+      rowCount = pdfResult.rowCount;
     }
 
-    candidates.sort((a, b) => b.score - a.score);
-    const best = candidates[0];
-    const worksheet = best.worksheet;
-    const headerRowNum = best.headerRow;
-    const headers = best.headers;
+    if (allDataRows.length === 0) {
+      return NextResponse.json({ success: false, message: "未能从文件中提取到有效数据" }, { status: 400 });
+    }
 
-    const rawRows: string[][] = [];
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber <= headerRowNum) return;
-      const values: string[] = [];
-      for (let i = 0; i < headers.length; i++) {
-        const cell = row.getCell(i + 1);
-        values.push(cell.value !== null && cell.value !== undefined ? String(cell.value).trim() : "");
-      }
-      if (values.some((v) => v)) {
-        rawRows.push(values);
-      }
-    });
+    // ===== 自动列映射 =====
+    let mapping: Record<string, string>;
+    if (rule?.config?.columns && rule.config.columns.length > 0) {
+      // 有规则时 headers 已经是映射后的字段名，直接使用恒等映射
+      mapping = Object.fromEntries(allHeaders.map((h) => [h, h]));
+    } else {
+      mapping = autoDetectMapping(allHeaders);
+    }
 
-    const autoMapping = autoDetectMapping(headers);
-    const fingerprint = computeFingerprint(headers);
+    const fingerprint = computeFingerprint(allHeaders);
 
     return NextResponse.json({
       success: true,
       data: {
-        headers,
-        rows: rawRows,
-        autoMapping,
+        headers: allHeaders,
+        rows: allDataRows.slice(0, 200),
+        rowCount,
+        mapping,
         fingerprint,
-        sheetName: worksheet.name,
-        totalRows: rawRows.length,
+        format: ext,
       },
     });
   } catch (error) {
     console.error("导入解析失败:", error);
-    return NextResponse.json(
-      { success: false, message: "文件解析失败，请检查文件是否损坏", error: String(error) },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "解析失败";
+    return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }
