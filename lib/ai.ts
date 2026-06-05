@@ -57,7 +57,8 @@ ${fieldsDesc}
    - sourceIndex: 源列索引（0-based）或 sourceHeader: 源列表头名称
    - targetField: 映射到的标准字段名
    - defaultValue: （可选）默认值
-8. **config.steps**: 后处理步骤数组，每个元素包含 type 和 config：
+   - **isSpeculative**: （可选，重要）**如果你对某个列映射不确定**（例如列名没有明确匹配目标字段名，或者你猜测某列含义），请将此字段设为 true。这标记该映射为"推测性"，需要用户确认
+8. **config.steps**: 后处理步骤数组...后处理步骤数组，每个元素包含 type 和 config：
    - 类型可选: "skip_rows_before_header", "skip_rows_after_header", "extract_tail_info", "aggregate_by_field", "transpose_matrix", "card_split", "composite_split", "static_value", "regex_extract"
    - config 字段根据类型不同：
      * static_value: { field: "target_field", value: "固定值" }
@@ -157,6 +158,18 @@ export async function generateRuleFromFile(
       fileTypes: aiResult.fileTypes || ["xlsx"],
       config: aiResult.config as RuleConfig,
     };
+
+    // 后处理：如果 AI 没有标记推测性映射，使用启发式标记
+    if (rule.config?.columns) {
+      rule.config.columns = rule.config.columns.map((col: ColumnMapping) => {
+        if (col.isSpeculative) return col; // AI 已标记
+        // 使用默认值的映射都标记为推测性
+        if (col.defaultValue && !col.sourceIndex && !col.sourceHeader) {
+          return { ...col, isSpeculative: true };
+        }
+        return col;
+      });
+    }
 
     return { success: true, rule };
   } catch (error: unknown) {

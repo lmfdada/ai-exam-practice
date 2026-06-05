@@ -20,6 +20,8 @@ export interface ColumnMapping {
   targetField: string;
   /** 默认值（当源列为空时使用） */
   defaultValue?: string;
+  /** AI 推测标记：此映射由 AI 推测生成，可能需要人工确认 */
+  isSpeculative?: boolean;
 }
 
 /** 后处理步骤类型 */

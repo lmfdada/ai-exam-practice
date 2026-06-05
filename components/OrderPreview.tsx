@@ -398,22 +398,67 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
           <button onClick={onBack} className="btn btn-sm btn-ghost">↩ 返回</button>
           <button onClick={addRow} className="btn btn-sm" style={{ background: "var(--ztocc-primary-bg)", color: "var(--ztocc-primary)" }}>+ 新增行</button>
           <button onClick={handleExport} className="btn btn-sm" style={{ background: "rgba(59, 130, 246, 0.1)", color: "#3b82f6" }}>导出</button>
+        </div>
+      </div>
+
+      {/* 底部提交栏 */}
+      {rows.length > 0 && (
+        <div
+          style={{
+            flexShrink: 0,
+            padding: "12px 20px",
+            borderTop: "1px solid var(--border-color)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background: "var(--ztocc-bg-card)",
+          }}
+        >
+          <div style={{ fontSize: 13, color: "var(--ztocc-text-secondary)" }}>
+            {rows.length} 条数据
+            {totalErrors > 0 && (
+              <span style={{ color: "#f56c6c", marginLeft: 8 }}>
+                · {totalErrors} 条待修正
+              </span>
+            )}
+          </div>
           <button
             onClick={handleSubmit}
             disabled={hasErrors || submitting}
-            className="btn btn-sm"
             style={{
-              background: hasErrors || submitting ? "rgba(156, 163, 175, 0.1)" : "var(--ztocc-primary-bg)",
-              color: hasErrors || submitting ? "#9ca3af" : "var(--ztocc-primary)",
+              padding: "10px 40px",
+              fontSize: 15,
+              fontWeight: 600,
+              background: hasErrors || submitting
+                ? "rgba(156, 163, 175, 0.15)"
+                : "linear-gradient(135deg, #0fc6c2, #0da8a4)",
+              color: hasErrors || submitting ? "#9ca3af" : "#fff",
+              border: "none",
+              borderRadius: 6,
               cursor: hasErrors || submitting ? "not-allowed" : "pointer",
+              transition: "all 0.2s",
+              boxShadow: hasErrors || submitting ? "none" : "0 2px 8px rgba(15, 198, 194, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 160,
+              justifyContent: "center",
             }}
           >
-            {submitting
-              ? `提交中 ${submitProgress ? `${Math.round((submitProgress.completed / submitProgress.total) * 100)}%` : "..."}`
-              : "提交下单"}
+            {submitting ? (
+              <>
+                <span style={{ display: "inline-block", width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                提交中 {submitProgress ? `${Math.round((submitProgress.completed / submitProgress.total) * 100)}%` : "..."}
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 18 }}>📤</span>
+                提交下单
+              </>
+            )}
           </button>
         </div>
-      </div>
+      )}
 
       {/* 提交进度 */}
       {submitting && submitProgress && (

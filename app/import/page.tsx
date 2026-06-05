@@ -33,7 +33,7 @@ export default function ImportPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, height: "100%" }}>
-      <div className="main-content-card" style={{ overflow: "hidden" }}>
+      <div className="main-content-card" style={{ overflow: "visible" }}>
         {!previewData ? (
           <OrderImport onImportComplete={handleImportComplete} />
         ) : (

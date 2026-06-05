@@ -41,8 +41,8 @@ export async function POST(request: NextRequest) {
         SELECT DISTINCT external_code FROM orders
         WHERE external_code = ANY(${codesToCheck}::varchar[])
       `;
-      for (const row of existing) {
-        existingCodes.add(row.external_code);
+      for (const row of existing as Record<string, unknown>[]) {
+        existingCodes.add(String(row.external_code));
       }
     }
 
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
           )
           RETURNING id
         `;
-        insertedRows.push({ ...r, id: result[0]?.id });
+        insertedRows.push({ ...r, id: (result as Record<string, unknown>[])[0]?.id });
       } catch (writeErr) {
         writeErrors.push({ row: r, error: String(writeErr) });
       }

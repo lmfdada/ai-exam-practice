@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const countResult = await sql.query(`SELECT COUNT(*) as total FROM orders ${where}`, values);
+    const countResult = (await sql.query(`SELECT COUNT(*) as total FROM orders ${where}`, values)) as Record<string, unknown>[];
     const total = Number(countResult[0].total);
 
     values.push(pageSize, (page - 1) * pageSize);
@@ -69,11 +69,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: rows,
-      pagination: {
+      data: {
+        orders: rows,
+        total,
         page,
         pageSize,
-        total,
         totalPages: Math.ceil(total / pageSize),
       },
     });

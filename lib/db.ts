@@ -15,7 +15,10 @@ let dbInstance: Database.Database | null = null;
 function getOrCreateDb(): Database.Database {
   if (dbInstance) return dbInstance;
 
-  const dbDir = path.join(process.cwd(), "data");
+  // Vercel 环境下使用 /tmp 目录（可写），否则使用项目 data 目录
+  const isVercel = process.env.VERCEL === "1" || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+  const dbDir = isVercel ? "/tmp/data" : path.join(process.cwd(), "data");
+
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }

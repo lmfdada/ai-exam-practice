@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import type { ImportData } from "@/app/page";
+import type { ImportData } from "@/app/import/page";
 import RuleEditor from "./RuleEditor";
 import type { ParseRule } from "@/lib/rules";
 
@@ -37,6 +37,8 @@ export default function OrderImport({ onImportComplete }: Props) {
   const [rawPreviewHeaders, setRawPreviewHeaders] = useState<string[]>([]);
   const [rawPreviewRows, setRawPreviewRows] = useState<string[][]>([]);
   const [generating, setGenerating] = useState(false);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
+  const [aiDisclaimer, setAiDisclaimer] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ===== 加载规则列表 =====
@@ -228,6 +230,34 @@ export default function OrderImport({ onImportComplete }: Props) {
     setRawPreviewHeaders([]);
     setRawPreviewRows([]);
 
+    // 优先使用 Web Worker 在后台线程读取文件预览，不阻塞 UI
+    try {
+      const worker = new Worker("/workers/file-reader.worker.js");
+      const promise = new Promise<{ headers: string[]; rows: string[][] }>((resolve, reject) => {
+        worker.onmessage = (e) => {
+          worker.terminate();
+          if (e.data.success && e.data.type === "csv") {
+            resolve({ headers: e.data.headers, rows: e.data.rows });
+          } else {
+            reject(new Error("Worker 不支持非 CSV 格式"));
+          }
+        };
+        worker.onerror = () => {
+          worker.terminate();
+          reject(new Error("Worker 错误"));
+        };
+      });
+      worker.postMessage(f);
+
+      const preview = await promise;
+      setRawPreviewHeaders(preview.headers);
+      setRawPreviewRows(preview.rows);
+      return;
+    } catch {
+      // Worker 预览失败，回退到服务器预览
+    }
+
+    // 回退：服务器端预览
     const formData = new FormData();
     formData.append("file", f);
 
@@ -306,8 +336,9 @@ export default function OrderImport({ onImportComplete }: Props) {
           description: aiRuleData.description || `AI 为「${file.name}」自动生成`,
           fileTypes: aiRuleData.fileTypes || ["xlsx"],
           config: aiRuleData.config,
-          isAiGenerated: true,
         } as Partial<ParseRule>);
+        setAiDisclaimer(aiRuleData.aiDisclaimer || "此规则由 AI 自动生成，部分映射可能不准确，请手动确认后保存。");
+        setIsAiGenerated(true);
         setShowRuleEditor(true);
       } else {
         // AI 失败时，至少打开一个带有文件提示的空编辑器
@@ -390,7 +421,7 @@ export default function OrderImport({ onImportComplete }: Props) {
             borderStyle: "dashed",
             cursor: "pointer",
             borderColor: dragOver ? "var(--ztocc-primary)" : "var(--border-color)",
-            background: dragOver ? "rgba(0,185,185,0.04)" : "var(--bg-card)",
+            background: dragOver ? "rgba(15,198,194,0.04)" : "var(--bg-card)",
             transition: "all 0.2s",
           }}
           onClick={() => fileInputRef.current?.click()}
@@ -599,18 +630,18 @@ export default function OrderImport({ onImportComplete }: Props) {
               <div style={{ display: "flex", gap: 10 }}>
                 <button
                   className="btn btn-primary"
+                  onClick={handleAutoParse}
+                  style={{ flex: 1, height: 36 }}
+                >
+                  自动解析（推荐）
+                </button>
+                <button
+                  className="btn btn-secondary"
                   onClick={handleAIGenerate}
                   disabled={generating}
                   style={{ flex: 1, height: 36 }}
                 >
                   {generating ? "AI 分析中..." : "AI 新建规则"}
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleAutoParse}
-                  style={{ flex: 1, height: 36 }}
-                >
-                  自动解析（无规则）
                 </button>
               </div>
             </div>
@@ -660,12 +691,13 @@ export default function OrderImport({ onImportComplete }: Props) {
                   onClick={() => {
                     setError("");
                     if (file) {
+                      setIsAiGenerated(false);
+                      setAiDisclaimer("");
                       setEditingRule({
                         name: file.name.replace(/\.[^.]+$/, ""),
                         description: `适用于 ${file.name}`,
                         fileTypes: [file.name.split(".").pop() || "xlsx"] as ("xlsx" | "xls" | "docx" | "pdf")[],
                         config: { sheets: "auto" as const, headerDetection: "auto" as const, columns: [], steps: [] },
-                        isAiGenerated: false,
                       } as Partial<ParseRule>);
                       setShowRuleEditor(true);
                     }
@@ -706,7 +738,7 @@ export default function OrderImport({ onImportComplete }: Props) {
     ];
 
     return (
-      <div style={{ padding: 24 }}>
+      <div style={{ padding: 24, maxHeight: "75vh", overflowY: "auto" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
             确认字段映射
@@ -752,7 +784,7 @@ export default function OrderImport({ onImportComplete }: Props) {
                         borderRadius: 3,
                         fontSize: 10,
                         fontWeight: 600,
-                        background: "rgba(0,185,185,0.12)",
+                        background: "rgba(15,198,194,0.12)",
                         color: "var(--ztocc-primary)",
                         lineHeight: "1.4",
                       }}>
@@ -860,7 +892,7 @@ export default function OrderImport({ onImportComplete }: Props) {
             onClick={handleConfirmMapping}
             style={{ flex: 1 }}
           >
-            确认导入（{rowCount}行）
+            进入预览（{rowCount}行）
           </button>
         </div>
 
@@ -895,7 +927,11 @@ export default function OrderImport({ onImportComplete }: Props) {
               onCancel={() => {
                 setShowRuleEditor(false);
                 setEditingRule(undefined);
+                setIsAiGenerated(false);
+                setAiDisclaimer("");
               }}
+              isAiGenerated={isAiGenerated}
+              aiDisclaimer={aiDisclaimer}
             />
           </div>
         </div>

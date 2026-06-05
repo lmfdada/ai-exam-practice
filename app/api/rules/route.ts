@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       if (result.length === 0) {
         return NextResponse.json({ success: false, message: "规则不存在" }, { status: 404 });
       }
-      return NextResponse.json({ success: true, data: formatRule(result[0]) });
+      return NextResponse.json({ success: true, data: formatRule(result[0] as Record<string, unknown>) });
     }
 
     const result = await sql`
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     `;
     return NextResponse.json({
       success: true,
-      data: result.map(formatRule),
+      data: result.map((r: unknown) => formatRule(r as Record<string, unknown>)),
     });
   } catch (error) {
     console.error("查询规则失败:", error);
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         UPDATE parse_rules SET
           name = ${name},
           description = ${description || ""},
-          file_types = ${fileTypes || ["xlsx"]},
+          file_types = ${JSON.stringify(fileTypes || ["xlsx"])},
           config = ${JSON.stringify(config || {})},
           updated_at = ${now}
         WHERE rule_id = ${id}
@@ -72,12 +72,12 @@ export async function POST(request: NextRequest) {
       // 创建
       await sql`
         INSERT INTO parse_rules (rule_id, name, description, file_types, config)
-        VALUES (${id}, ${name}, ${description || ""}, ${fileTypes || ["xlsx"]}, ${JSON.stringify(config || {})})
+        VALUES (${id}, ${name}, ${description || ""}, ${JSON.stringify(fileTypes || ["xlsx"])}, ${JSON.stringify(config || {})})
       `;
     }
 
     const result = await sql`SELECT * FROM parse_rules WHERE rule_id = ${id} LIMIT 1`;
-    return NextResponse.json({ success: true, data: formatRule(result[0]) });
+    return NextResponse.json({ success: true, data: formatRule(result[0] as Record<string, unknown>) });
   } catch (error) {
     console.error("保存规则失败:", error);
     return NextResponse.json({ success: false, message: "保存失败", error: String(error) }, { status: 500 });
@@ -109,14 +109,27 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+/** 安全解析 JSON，失败时返回原始值或默认值 */
+function safeJsonParse(val: unknown, fallback: unknown = null) {
+  if (typeof val === "string") {
+    try {
+      return JSON.parse(val);
+    } catch {
+      // 可能是旧数据存储的纯字符串（非 JSON），尝试返回字符串本身或默认值
+      return fallback !== null ? fallback : val;
+    }
+  }
+  return val ?? fallback;
+}
+
 /** 格式化数据库记录 */
 function formatRule(row: Record<string, unknown>) {
   return {
     id: row.rule_id,
     name: row.name,
     description: row.description,
-    fileTypes: row.file_types,
-    config: typeof row.config === "string" ? JSON.parse(row.config as string) : row.config,
+    fileTypes: safeJsonParse(row.file_types, ["xlsx"]),
+    config: safeJsonParse(row.config, {}),
     isAiGenerated: row.is_ai_generated,
     usedCount: row.used_count,
     createdAt: row.created_at,

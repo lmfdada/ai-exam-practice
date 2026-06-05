@@ -6,21 +6,21 @@
   --ztocc-slide-width: 220px;
   --ztocc-slide-bg-color: #00263C;
   --ztocc-slide-text-color: rgba(255, 255, 255, 0.7);
-  --ztocc-slide-item-bg-color: #01bebe;
+  --ztocc-slide-item-bg-color: #0fc6c2;
   --ztocc-slide-item-text-color: #fff;
-  --ztocc-slide-item-active-bg: linear-gradient(to right, rgba(6, 176, 176, 0.5), transparent);
+  --ztocc-slide-item-active-bg: linear-gradient(to right, rgba(15, 198, 194, 0.5), transparent);
   --ztocc-header-height: 56px;
-  --ztocc-header-bg: linear-gradient(90deg, #01bebe 0%, #004d72 100%);
+  --ztocc-header-bg: linear-gradient(90deg, #0fc6c2 0%, #004d72 100%);
   --ztocc-header-text-color: #fff;
   --ztocc-tabs-height: 41px;
   --ztocc-main-bg: #f3f9fe;
   --ztocc-border-color: #009EBF;
 
   /* Brand Colors */
-  --ztocc-primary: #00b9b9;
-  --ztocc-primary-dark: #009999;
-  --ztocc-primary-light: #33cccc;
-  --ztocc-primary-bg: rgba(0, 185, 185, 0.08);
+  --ztocc-primary: #0fc6c2;
+  --ztocc-primary-dark: #0da8a4;
+  --ztocc-primary-light: #3fd4d1;
+  --ztocc-primary-bg: rgba(15, 198, 194, 0.08);
 
   /* Functional Colors */
   --ztocc-success: #17c964;
@@ -395,7 +395,7 @@ body {
 .tag-cyan {
   background: var(--ztocc-primary-bg);
   color: var(--ztocc-primary);
-  border: 1px solid rgba(0, 185, 185, 0.2);
+  border: 1px solid rgba(15, 198, 194, 0.2);
 }
 
 .tag-success {
@@ -564,6 +564,119 @@ body {
 
 .tab:hover:not(.active) {
   color: var(--ztocc-text-primary);
+}
+
+/* ===== 暗黑主题 ===== */
+[data-theme="dark"] {
+  --ztocc-slide-bg-color: #001a2c;
+  --ztocc-bg-page: #141414;
+  --ztocc-bg-card: #1d1d1d;
+  --ztocc-bg-card-hover: #252525;
+  --ztocc-bg-white: #1d1d1d;
+  --ztocc-border-color-light: #333;
+  --ztocc-border-color: #444;
+  --ztocc-text-primary: #e0e0e0;
+  --ztocc-text-regular: #b0b0b0;
+  --ztocc-text-secondary: #888;
+  --ztocc-text-placeholder: #666;
+  --ztocc-table-header-bg: #252525;
+  --ztocc-table-header-text: #ccc;
+  --ztocc-table-row-hover: #2a2a2a;
+  --ztocc-table-row-current: #1a3a3a;
+  --ztocc-table-border: #333;
+  --ztocc-main-bg: #141414;
+  --ztocc-header-bg: linear-gradient(90deg, #0fc6c2 0%, #00263C 100%);
+  --ztocc-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.3);
+  --ztocc-shadow-card: 0 2px 12px 0 rgba(0, 0, 0, 0.3);
+  --warning-bg: rgba(245, 165, 36, 0.15);
+  --success-bg: rgba(23, 201, 100, 0.15);
+  --danger-bg: rgba(255, 0, 0, 0.15);
+}
+
+/* ===== 响应式侧边栏 ===== */
+.hamburger-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.sidebar-overlay {
+  display: none;
+}
+
+/* 移动端：< 768px */
+@media (max-width: 768px) {
+  .hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar-closed {
+    transform: translateX(-100%);
+  }
+
+  .sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+  }
+
+  .top-header-title {
+    font-size: 14px;
+  }
+
+  .main-content {
+    padding: 12px;
+  }
+}
+
+/* 平板：768px - 1024px */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .sidebar {
+    width: 180px;
+  }
+
+  :root {
+    --ztocc-slide-width: 180px;
+  }
+}
+
+/* ===== 头部按钮样式 ===== */
+.header-icon-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.header-icon-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 

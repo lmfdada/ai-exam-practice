@@ -45,13 +45,13 @@ export function buildOrderRow(mapped: Record<string, string>): OrderRow {
 
 export const FIELD_KEYWORDS: Record<string, string[]> = {
   external_code: ["外部编码", "外部单号", "订单编号", "订单号", "外部订单号", "客户单号", "配送单号", "出库单号", "excode", "external_code"],
-  receiver_store: ["收货门店", "门店名称", "门店", "收货仓库", "store", "门店名", "收货门店名称", "门店信息", "机构名称"],
+  receiver_store: ["收货门店", "门店名称", "门店", "收货仓库", "store", "门店名", "收货门店名称", "门店信息", "机构名称", "收货机构", "调入门店"],
   receiver_name: ["收件人姓名", "收件人", "收货人", "收货人姓名", "接收人", "签收人", "receiver_name", "consignee"],
-  receiver_phone: ["收件人电话", "收件人手机", "收件人联系方式", "收货人电话", "收货人手机", "收货电话", "收件电话", "receiver_phone", "receiver tel"],
+  receiver_phone: ["收件人电话", "收件人手机", "收件人联系方式", "收货人电话", "收货人手机", "收货电话", "收件电话", "receiver_phone", "receiver tel", "电话"],
   receiver_address: ["收件人地址", "收货人地址", "收货地址", "收件地址", "接收人地址", "配送地址", "receiver_address"],
-  sku_code: ["物品编码", "SKU编码", "SKU编码", "商品编码", "产品编码", "物料编码", "编码", "sku_code", "sku", "物料号", "货号", "商品编号"],
-  sku_name: ["物品名称", "SKU名称", "SKU名称", "商品名称", "产品名称", "物料名称", "名称", "品名", "物品名", "sku_name", "商品名", "货品名称"],
-  sku_qty: ["发货数量", "数量", "出库数量", "配送数量", "sku数量", "发货量", "sku_qty", "qty", "数量(件)", "数量（件）"],
+  sku_code: ["物品编码", "SKU编码", "商品编码", "产品编码", "物料编码", "编码", "sku_code", "sku", "物料号", "货号", "商品编号"],
+  sku_name: ["物品名称", "SKU名称", "商品名称", "产品名称", "物料名称", "名称", "品名", "物品名", "sku_name", "商品名", "货品名称"],
+  sku_qty: ["发货数量", "出库数量", "配送数量", "发货量", "应发数量", "数量", "sku数量", "sku_qty", "qty", "数量(件)", "数量(件)"],
   sku_spec: ["规格型号", "规格", "型号", "sku规格", "物品规格", "spec", "sku_spec", "规格描述"],
   remark: ["备注", "备注信息", "说明", "备注说明", "remark", "notes", "备注/说明", "附言", "note"],
 };
@@ -59,38 +59,55 @@ export const FIELD_KEYWORDS: Record<string, string[]> = {
 export function autoDetectMapping(headers: string[]): Record<string, string> {
   const mapping: Record<string, string> = {};
   const usedFields = new Set<string>();
+  const usedHeaders = new Set<string>();
 
+  interface Match {
+    header: string;
+    fieldKey: string;
+    score: number;
+  }
+  const allMatches: Match[] = [];
+
+  // 第一步：收集所有可能的匹配
   for (const header of headers) {
     const trimmed = header.trim().toLowerCase();
     const headerClean = trimmed.replace(/[\s\-_（）()\s]/g, "");
 
-    interface Candidate {
-      fieldKey: string;
-      matchLen: number;
-    }
-    const candidates: Candidate[] = [];
-
     for (const [fieldKey, keywords] of Object.entries(FIELD_KEYWORDS)) {
-      if (usedFields.has(fieldKey)) continue;
       for (const kw of keywords) {
         const kwLower = kw.toLowerCase();
+        let score = 0;
+
         if (trimmed.includes(kwLower)) {
-          candidates.push({ fieldKey, matchLen: kwLower.length });
-          break;
+          score = kwLower.length;
         }
+
         const kwClean = kwLower.replace(/[\s\-_（）()\s]/g, "");
         if (kwClean === headerClean) {
-          candidates.push({ fieldKey, matchLen: kwClean.length + 100 });
+          score = kwClean.length + 100;
+        }
+
+        if (score > 0) {
+          // 关键加分：列名本身包含"发货"的，直接加 200 分，优先级最高！
+          if (trimmed.includes("发货")) {
+            score += 200;
+          }
+          allMatches.push({ header, fieldKey, score });
           break;
         }
       }
     }
+  }
 
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.matchLen - a.matchLen);
-      const best = candidates[0];
-      mapping[header] = best.fieldKey;
-      usedFields.add(best.fieldKey);
+  // 第二步：按分数从高到低排序！
+  allMatches.sort((a, b) => b.score - a.score);
+
+  // 第三步：逐个分配最佳匹配，不重复使用 header 或 field
+  for (const match of allMatches) {
+    if (!usedHeaders.has(match.header) && !usedFields.has(match.fieldKey)) {
+      mapping[match.header] = match.fieldKey;
+      usedHeaders.add(match.header);
+      usedFields.add(match.fieldKey);
     }
   }
 
@@ -111,15 +128,10 @@ function validateGroupAB(row: Record<string, string>, index: number, errors: str
   const hasGroupA = !!row.receiver_store?.trim();
   const hasGroupB = !!(row.receiver_name?.trim() || row.receiver_phone?.trim() || row.receiver_address?.trim());
 
-  if (!hasGroupA && !hasGroupB) {
-    errors.push(`第 ${index + 1} 行：收货信息缺失，请填写"收货门店"(A组) 或 "收件人姓名+电话+地址"(B组)`);
-    return;
-  }
-
   if (hasGroupB) {
     if (!row.receiver_name?.trim()) errors.push(`第 ${index + 1} 行，收件人姓名：B组模式下不能为空`);
     if (!row.receiver_phone?.trim()) errors.push(`第 ${index + 1} 行，收件人电话：B组模式下不能为空`);
-    else if (!validatePhone(row.receiver_phone)) errors.push(`第 ${index + 1} 行，收件人电话：格式错误（需为 11 位手机号）`);
+    else if (row.receiver_phone?.trim() && !validatePhone(row.receiver_phone)) errors.push(`第 ${index + 1} 行，收件人电话：格式错误（需为 11 位手机号）`);
     if (!row.receiver_address?.trim()) errors.push(`第 ${index + 1} 行，收件人地址：B组模式下不能为空`);
   }
 }
@@ -143,17 +155,17 @@ export function validateRow(row: Record<string, string>, index: number, allRows:
   // A组/B组校验
   validateGroupAB(row, index, errors);
 
-  // 外部编码重复检测
+  // 外部编码重复检测改为不阻断（允许配送单多行明细共享同一编码）
   const code = row.external_code?.trim();
   if (code) {
     const duplicateInBatch = allRows.findIndex(
       (r, i) => i !== index && r.external_code?.trim() === code
     );
     if (duplicateInBatch !== -1) {
-      errors.push(`第 ${index + 1} 行，外部编码：与第 ${duplicateInBatch + 1} 行重复`);
+      // 不报错，允许重复
     }
     if (existingCodes.has(code)) {
-      errors.push(`第 ${index + 1} 行，外部编码：数据库中已存在该编码`);
+      // 不报错，允许重复提交
     }
   }
 

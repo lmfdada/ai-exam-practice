@@ -7,6 +7,8 @@ interface Props {
   rule?: Partial<ParseRule>;
   onSave: (rule: ParseRule) => void;
   onCancel: () => void;
+  isAiGenerated?: boolean;
+  aiDisclaimer?: string;
 }
 
 const STANDARD_FIELDS = [
@@ -39,7 +41,7 @@ const POST_PROCESSOR_OPTIONS: { key: PostProcessorType; label: string }[] = [
 
 type Tab = "basic" | "mapping" | "steps" | "preview";
 
-export default function RuleEditor({ rule, onSave, onCancel }: Props) {
+export default function RuleEditor({ rule, onSave, onCancel, isAiGenerated, aiDisclaimer }: Props) {
   const [name, setName] = useState(rule?.name || "");
   const [description, setDescription] = useState(rule?.description || "");
   const [fileTypes, setFileTypes] = useState<string[]>(rule?.fileTypes as string[] || ["xlsx"]);
@@ -559,6 +561,23 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
         {/* Tab: Basic */}
         {activeTab === "basic" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* AI Disclaimer */}
+            {isAiGenerated && aiDisclaimer && (
+              <div style={{
+                padding: "10px 14px",
+                background: "rgba(245, 165, 36, 0.12)",
+                border: "1px solid rgba(245, 165, 36, 0.3)",
+                borderRadius: 6,
+                fontSize: 13,
+                color: "#b8860b",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+              }}>
+                <span style={{ marginTop: 1 }}>🤖</span>
+                <span>{aiDisclaimer}</span>
+              </div>
+            )}
             {anomaliesByTab.basic && anomaliesByTab.basic.length > 0 && (
               <div style={{
                 padding: "8px 12px",
@@ -619,7 +638,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
                       padding: "6px 14px",
                       borderRadius: 4,
                       border: `1px solid ${fileTypes.includes(opt.key) ? "var(--ztocc-primary)" : "var(--border-color)"}`,
-                      background: fileTypes.includes(opt.key) ? "var(--ztocc-primary-opacity, rgba(0,185,185,0.08))" : "var(--bg-card)",
+                      background: fileTypes.includes(opt.key) ? "var(--ztocc-primary-opacity, rgba(15,198,194,0.08))" : "var(--bg-card)",
                       userSelect: "none",
                     }}
                     onClick={() => toggleFileType(opt.key)}
@@ -806,6 +825,27 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
                         value={col.defaultValue || ""}
                         onChange={(e) => updateColumn(i, "defaultValue", e.target.value)}
                       />
+
+                      {col.isSpeculative && (
+                        <span
+                          title="此映射由 AI 推测生成，请确认是否正确"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 3,
+                            padding: "1px 8px",
+                            borderRadius: 10,
+                            background: "rgba(245, 165, 36, 0.15)",
+                            color: "#e6a023",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "help",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          ⚠ 推测性
+                        </span>
+                      )}
                     </div>
 
                     <button
@@ -942,7 +982,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: Props) {
                 textAlign: "center",
                 border: `2px dashed ${previewFile ? "var(--ztocc-primary)" : previewDragOver ? "var(--ztocc-primary)" : "var(--border-color)"}`,
                 borderRadius: 8,
-                background: previewDragOver ? "rgba(0,185,185,0.04)" : "var(--bg-card)",
+                background: previewDragOver ? "rgba(15,198,194,0.04)" : "var(--bg-card)",
                 cursor: "pointer",
                 transition: "all 0.2s",
                 marginBottom: 16,
