@@ -54,7 +54,6 @@ function getFieldLabel(key: string): string {
   return field ? field.label : key;
 }
 
-/** 判断行的收货模式 */
 function getRowGroup(row: PreviewRow): "group_a" | "group_b" | "none" {
   const hasA = !!row.receiver_store?.trim();
   const hasB = !!(row.receiver_name?.trim() || row.receiver_phone?.trim() || row.receiver_address?.trim());
@@ -96,7 +95,6 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const selectRef = useRef<HTMLSelectElement | null>(null);
 
-  // 虚拟滚动
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const useVirtual = rows.length > VIRTUAL_THRESHOLD;
@@ -118,7 +116,6 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const pageEnd = Math.min(pageStart + PAGE_SIZE, rows.length);
   const currentRows = useMemo(() => rows.slice(pageStart, pageEnd), [rows, pageStart, pageEnd]);
 
-  // 虚拟滚动计算
   const visibleCount = useMemo(() => Math.ceil((scrollRef.current?.clientHeight || 600) / ROW_HEIGHT) + 4, [scrollRef.current?.clientHeight]);
   const virtualStart = useMemo(() => {
     if (!useVirtual) return 0;
@@ -295,55 +292,72 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
     const allSucceeded = submitResult.failCount === 0;
     return (
       <div className="flex flex-col items-center justify-center py-16">
-        <div className={`text-5xl mb-4 ${allSucceeded ? "text-[var(--primary)]" : "text-amber-400"}`}>
+        <div style={{ fontSize: 48, marginBottom: 16, color: allSucceeded ? "var(--ztocc-primary)" : "#f59e0b" }}>
           {allSucceeded ? "✓" : "!"}
         </div>
-        <h3 className="text-lg font-semibold text-white mb-4">提交完成</h3>
-        <div className="card p-4 w-full max-w-sm mb-6" style={{ background: "var(--bg-card)" }}>
-          <div className="flex justify-between items-center py-1.5">
-            <span className="text-sm text-gray-400">提交总数</span>
-            <span className="text-sm text-white font-medium">{submitResult.successCount + submitResult.failCount} 条</span>
+        <div style={{ fontSize: 18, fontWeight: 600, color: "var(--ztocc-text-primary)", marginBottom: 16 }}>
+          提交完成
+        </div>
+        <div className="card" style={{ padding: 16, width: "100%", maxWidth: 320, marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+            <span style={{ fontSize: 13, color: "var(--ztocc-text-secondary)" }}>提交总数</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ztocc-text-primary)" }}>
+              {submitResult.successCount + submitResult.failCount} 条
+            </span>
           </div>
-          <div className="flex justify-between items-center py-1.5 border-t border-white/5">
-            <span className="text-sm text-gray-400">成功</span>
-            <span className="text-sm text-[var(--primary)] font-medium">{submitResult.successCount} 条</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--ztocc-border-color-light)" }}>
+            <span style={{ fontSize: 13, color: "var(--ztocc-text-secondary)" }}>成功</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ztocc-primary)" }}>
+              {submitResult.successCount} 条
+            </span>
           </div>
-          <div className="flex justify-between items-center py-1.5 border-t border-white/5">
-            <span className="text-sm text-gray-400">失败</span>
-            <span className={`text-sm font-medium ${submitResult.failCount > 0 ? "text-red-400" : "text-gray-500"}`}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--ztocc-border-color-light)" }}>
+            <span style={{ fontSize: 13, color: "var(--ztocc-text-secondary)" }}>失败</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: submitResult.failCount > 0 ? "#ef4444" : "var(--ztocc-text-placeholder)" }}>
               {submitResult.failCount} 条
             </span>
           </div>
-          <div className="flex justify-between items-center py-1.5 border-t border-white/5">
-            <span className="text-sm text-gray-400">批次号</span>
-            <span className="text-xs text-gray-500 font-mono">{submitResult.batchId}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--ztocc-border-color-light)" }}>
+            <span style={{ fontSize: 13, color: "var(--ztocc-text-secondary)" }}>批次号</span>
+            <span style={{ fontSize: 12, color: "var(--ztocc-text-placeholder)", fontFamily: "monospace" }}>
+              {submitResult.batchId}
+            </span>
           </div>
         </div>
         {submitResult.errors.length > 0 && (
-          <div className="w-full max-w-sm mb-6">
-            <div className="text-xs text-red-400/80 mb-2 font-medium">
+          <div style={{ width: "100%", maxWidth: 320, marginBottom: 24 }}>
+            <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8, fontWeight: 500 }}>
               失败详情（{submitResult.errors.length} 条）：
             </div>
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400/90 max-h-32 overflow-y-auto space-y-1">
+            <div style={{
+              padding: 12,
+              background: "var(--danger-bg)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              borderRadius: "var(--ztocc-border-radius-base)",
+              fontSize: 12,
+              color: "#dc2626",
+              maxHeight: 128,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}>
               {submitResult.errors.map((e, i) => (
-                <div key={i} className="leading-relaxed">{e}</div>
+                <div key={i}>{e}</div>
               ))}
             </div>
           </div>
         )}
-        <div className="flex gap-3">
+        <div style={{ display: "flex", gap: 12 }}>
           {allSucceeded ? (
-            <button
-              onClick={onBack}
-              className="btn btn-primary"
-            >
+            <button onClick={onBack} className="btn btn-primary">
               ↩ 继续导入
             </button>
           ) : (
             <button
               onClick={() => setSubmitResult(null)}
               className="btn btn-secondary"
-              style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
+              style={{ borderColor: "var(--ztocc-primary)", color: "var(--ztocc-primary)" }}
             >
               ↩ 返回修改
             </button>
@@ -359,59 +373,40 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   const hasMoreErrors = Object.keys(allErrors).length > 100;
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      <div className="flex items-center justify-between mb-4 shrink-0">
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {/* 顶部工具栏 */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexShrink: 0 }}>
         <div>
-          <h3 className="text-sm font-medium text-white">数据预览与编辑</h3>
-          <p className="text-xs text-gray-400 mt-1">
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ztocc-text-primary)" }}>数据预览与编辑</div>
+          <div style={{ fontSize: 12, color: "var(--ztocc-text-secondary)", marginTop: 4 }}>
             {rows.length > PAGE_SIZE
               ? `共 ${rows.length} 行，显示第 ${pageStart + 1}-${pageEnd} 行`
               : `共 ${rows.length} 行`}
             {rows.length > 500 && (
-              <span className="text-amber-400 ml-2">⚠ 批量数据</span>
+              <span style={{ color: "#d97706", marginLeft: 8 }}>⚠ 批量数据</span>
             )}
             {hasErrors ? (
-              <span className="text-red-400 ml-2 font-medium">
+              <span style={{ color: "#ef4444", marginLeft: 8, fontWeight: 500 }}>
                 ✗ {totalErrors} 个错误待修复
               </span>
             ) : rows.length > 0 ? (
-              <span className="text-[var(--primary)] ml-2">✓ 全部校验通过</span>
+              <span style={{ color: "var(--ztocc-primary)", marginLeft: 8 }}>✓ 全部校验通过</span>
             ) : null}
-          </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onBack}
-            className="text-xs px-3 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-          >
-            ↩ 返回
-          </button>
-          <button
-            onClick={addRow}
-            className="text-xs px-3 py-1.5 rounded-lg"
-            style={{ background: "var(--primary-bg)", color: "var(--primary)" }}
-          >
-            + 新增行
-          </button>
-          <button
-            onClick={handleExport}
-            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
-          >
-            导出
-          </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onBack} className="btn btn-sm btn-ghost">↩ 返回</button>
+          <button onClick={addRow} className="btn btn-sm" style={{ background: "var(--ztocc-primary-bg)", color: "var(--ztocc-primary)" }}>+ 新增行</button>
+          <button onClick={handleExport} className="btn btn-sm" style={{ background: "rgba(59, 130, 246, 0.1)", color: "#3b82f6" }}>导出</button>
           <button
             onClick={handleSubmit}
             disabled={hasErrors || submitting}
-            className={`text-xs px-4 py-1.5 rounded-lg transition-colors ${
-              hasErrors || submitting
-                ? "bg-gray-500/20 text-gray-500 cursor-not-allowed"
-                : ""
-            }`}
-            style={
-              !hasErrors && !submitting
-                ? { background: "var(--primary-bg)", color: "var(--primary)" }
-                : undefined
-            }
+            className="btn btn-sm"
+            style={{
+              background: hasErrors || submitting ? "rgba(156, 163, 175, 0.1)" : "var(--ztocc-primary-bg)",
+              color: hasErrors || submitting ? "#9ca3af" : "var(--ztocc-primary)",
+              cursor: hasErrors || submitting ? "not-allowed" : "pointer",
+            }}
           >
             {submitting
               ? `提交中 ${submitProgress ? `${Math.round((submitProgress.completed / submitProgress.total) * 100)}%` : "..."}`
@@ -420,61 +415,68 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
         </div>
       </div>
 
+      {/* 提交进度 */}
       {submitting && submitProgress && (
-        <div className="mb-4 p-4" style={{
-          background: "var(--primary-bg)",
-          border: "1px solid",
-          borderColor: "var(--primary)",
-          borderRadius: "var(--radius)",
-          opacity: 0.8,
+        <div style={{
+          marginBottom: 16,
+          padding: 16,
+          background: "var(--ztocc-primary-bg)",
+          border: "1px solid var(--ztocc-primary)",
+          borderRadius: "var(--ztocc-border-radius)",
         }}>
-          <div className="flex items-center justify-between text-sm mb-2">
-            <span style={{ color: "var(--primary)", fontWeight: 500 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
+            <span style={{ color: "var(--ztocc-primary)", fontWeight: 500 }}>
               正在提交数据
               {submitProgress.total > 1 && `（第 ${submitProgress.currentBatch}/${submitProgress.total} 批）`}
             </span>
-            <span className="text-gray-400 tabular-nums">
+            <span style={{ color: "var(--ztocc-text-secondary)" }}>
               {Math.round((submitProgress.completed / submitProgress.total) * 100)}%
             </span>
           </div>
-          <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-500 ease-out"
-              style={{
-                width: `${(submitProgress.completed / submitProgress.total) * 100}%`,
-                background: "linear-gradient(90deg, var(--primary), var(--primary-dark))",
-              }}
-            />
+          <div className="progress-bar">
+            <div className="progress-bar-fill" style={{ width: `${(submitProgress.completed / submitProgress.total) * 100}%` }} />
           </div>
-          <div className="flex justify-between text-xs text-gray-500 mt-1.5">
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ztocc-text-placeholder)", marginTop: 4 }}>
             <span>共 {rows.length} 条数据</span>
             <span>每批 {SUBMIT_BATCH_SIZE} 条 · 共 {submitProgress.total} 批</span>
           </div>
         </div>
       )}
 
+      {/* 错误提示 */}
       {hasErrors && !submitting && (
-        <div className="mb-4 bg-red-500/5 border border-red-500/20 rounded-xl overflow-hidden">
-          <div className="p-3 border-b border-red-500/10">
-            <div className="text-sm font-medium text-red-400">
+        <div style={{
+          marginBottom: 16,
+          background: "var(--danger-bg)",
+          border: "1px solid rgba(239, 68, 68, 0.2)",
+          borderRadius: "var(--ztocc-border-radius)",
+          overflow: "hidden",
+        }}>
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(239, 68, 68, 0.1)" }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "#ef4444" }}>
               发现 {totalErrors} 个错误，涉及 {errorRows.length} 行
             </div>
-            <div className="text-xs text-red-400/70 mt-0.5">
+            <div style={{ fontSize: 12, color: "rgba(239, 68, 68, 0.7)", marginTop: 2 }}>
               请修正所有错误后再提交
             </div>
           </div>
-          <div className="max-h-48 overflow-y-auto">
+          <div style={{ maxHeight: 192, overflowY: "auto" }}>
             {errorListItems.map((item) => (
-                <div
-                  key={item.key}
-                  className="px-3 py-1.5 text-xs text-red-300 border-b border-red-500/5 hover:bg-red-500/10 transition-colors flex items-start gap-2"
-                >
-                  <span className="text-red-500 mt-0.5 shrink-0">●</span>
-                  <span>{item.text}</span>
-                </div>
-              ))}
+              <div key={item.key} style={{
+                padding: "4px 12px",
+                fontSize: 12,
+                color: "#b91c1c",
+                borderBottom: "1px solid rgba(239, 68, 68, 0.05)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+              }}>
+                <span style={{ color: "#ef4444", flexShrink: 0 }}>●</span>
+                <span>{item.text}</span>
+              </div>
+            ))}
             {hasMoreErrors && (
-              <div className="px-3 py-2 text-xs text-gray-500 text-center">
+              <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--ztocc-text-placeholder)", textAlign: "center" }}>
                 ... 仅显示前 100 条错误
               </div>
             )}
@@ -483,37 +485,78 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
       )}
 
       {/* 表格区域 */}
-      <div
-        className="border border-white/10 rounded-xl overflow-hidden flex-1 min-h-0"
-        style={{ borderColor: "var(--border-color)" }}
-      >
+      <div style={{
+        border: "1px solid var(--ztocc-table-border)",
+        overflow: "hidden",
+        flex: 1,
+        minHeight: 0,
+      }}>
         <div
-          className="h-full overflow-auto"
+          style={{ height: "100%", overflow: "auto" }}
           ref={scrollRef}
           onScroll={useVirtual ? (e) => setScrollTop((e.target as HTMLDivElement).scrollTop) : undefined}
         >
-          <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 z-20">
-              <tr style={{ background: "var(--bg-card)" }}>
-                <th className="p-2 text-center text-gray-400 font-medium w-9 sticky left-0 z-30 border-r border-white/10"
-                    style={{ background: "var(--bg-card)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 20 }}>
+              <tr>
+                <th style={{
+                  padding: "8px 6px",
+                  textAlign: "center",
+                  color: "var(--ztocc-table-header-text)",
+                  fontWeight: 700,
+                  width: 36,
+                  position: "sticky",
+                  left: 0,
+                  zIndex: 30,
+                  borderRight: "1px solid var(--ztocc-table-border)",
+                  background: "var(--ztocc-table-header-bg)",
+                  borderBottom: "1px solid var(--ztocc-table-border)",
+                }}>
                   #
                 </th>
-                <th className="p-2 text-center text-gray-400 font-medium w-10 sticky left-9 z-30 border-r border-white/10"
-                    style={{ background: "var(--bg-card)" }}>
+                <th style={{
+                  padding: "8px 6px",
+                  textAlign: "center",
+                  color: "var(--ztocc-table-header-text)",
+                  fontWeight: 700,
+                  width: 40,
+                  position: "sticky",
+                  left: 36,
+                  zIndex: 30,
+                  borderRight: "1px solid var(--ztocc-table-border)",
+                  background: "var(--ztocc-table-header-bg)",
+                  borderBottom: "1px solid var(--ztocc-table-border)",
+                }}>
                   操作
                 </th>
-                <th className="p-2 text-center text-gray-400 font-medium w-16 sticky left-[76px] z-30 border-r border-white/10"
-                    style={{ background: "var(--bg-card)" }}>
+                <th style={{
+                  padding: "8px 6px",
+                  textAlign: "center",
+                  color: "var(--ztocc-table-header-text)",
+                  fontWeight: 700,
+                  width: 60,
+                  position: "sticky",
+                  left: 76,
+                  zIndex: 30,
+                  borderRight: "1px solid var(--ztocc-table-border)",
+                  background: "var(--ztocc-table-header-bg)",
+                  borderBottom: "1px solid var(--ztocc-table-border)",
+                }}>
                   模式
                 </th>
                 {STANDARD_FIELDS.map((f) => (
-                  <th
-                    key={f.key}
-                    className="p-2 text-left text-gray-300 font-medium whitespace-nowrap min-w-[120px] border-r border-white/5 last:border-r-0"
-                  >
+                  <th key={f.key} style={{
+                    padding: "8px 12px",
+                    textAlign: "left",
+                    color: "var(--ztocc-table-header-text)",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    minWidth: 120,
+                    borderRight: "1px solid var(--ztocc-table-border)",
+                    borderBottom: "1px solid var(--ztocc-table-border)",
+                  }}>
                     {f.label}
-                    {f.required && <span className="text-red-400 ml-0.5">*</span>}
+                    {f.required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}
                   </th>
                 ))}
               </tr>
@@ -582,7 +625,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
               )}
               {currentRows.length === 0 && !useVirtual && (
                 <tr>
-                  <td colSpan={STANDARD_FIELDS.length + 3} className="p-8 text-center text-gray-500 text-sm">
+                  <td colSpan={STANDARD_FIELDS.length + 3} style={{ padding: 32, textAlign: "center", color: "var(--ztocc-text-placeholder)", fontSize: 13 }}>
                     暂无数据
                   </td>
                 </tr>
@@ -593,39 +636,42 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
       </div>
 
       {/* 分页 */}
-      <div className="flex items-center justify-between mt-4 shrink-0">
-        <div className="text-xs text-gray-500">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, flexShrink: 0 }}>
+        <div style={{ fontSize: 12, color: "var(--ztocc-text-placeholder)" }}>
           {rows.length > 0 && (
             <span>共 {rows.length} 行 · {totalPages} 页 · 错误行 {errorRows.length} 行</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {totalPages > 1 && !useVirtual && (
             <>
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={safePage <= 1}
-                className="text-xs px-2.5 py-1.5 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="btn btn-sm btn-ghost"
+                style={{ opacity: safePage <= 1 ? 0.3 : 1, cursor: safePage <= 1 ? "not-allowed" : "pointer" }}
               >
                 ←
               </button>
-              <span className="text-xs text-gray-500 px-1">
+              <span style={{ fontSize: 12, color: "var(--ztocc-text-placeholder)", padding: "0 4px" }}>
                 {safePage} / {totalPages}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={safePage >= totalPages}
-                className="text-xs px-2.5 py-1.5 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="btn btn-sm btn-ghost"
+                style={{ opacity: safePage >= totalPages ? 0.3 : 1, cursor: safePage >= totalPages ? "not-allowed" : "pointer" }}
               >
                 →
               </button>
-              <span className="text-xs text-gray-500 ml-1">
+              <span style={{ fontSize: 12, color: "var(--ztocc-text-placeholder)", marginLeft: 4 }}>
                 跳转
                 <input
                   type="number"
                   min={1}
                   max={totalPages}
-                  className="w-12 bg-white/10 border border-white/20 rounded px-1.5 py-0.5 text-gray-200 text-center ml-1"
+                  className="input"
+                  style={{ width: 48, padding: "2px 6px", textAlign: "center", marginLeft: 4, fontSize: 12 }}
                   value={safePage}
                   onChange={(e) => {
                     const v = parseInt(e.target.value);
@@ -637,12 +683,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
             </>
           )}
           {totalPages <= 1 && !useVirtual && (
-            <button
-              onClick={addRow}
-              className="text-xs px-4 py-2 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
-            >
-              + 新增一行
-            </button>
+            <button onClick={addRow} className="btn btn-sm btn-ghost">+ 新增一行</button>
           )}
         </div>
       </div>
@@ -650,7 +691,7 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
   );
 }
 
-// ===== 行渲染子组件（减少重复代码） =====
+// ===== 行渲染子组件 =====
 interface RowCompProps {
   row: PreviewRow;
   rowIndex: number;
@@ -676,32 +717,43 @@ function RowComp({
   handleCellKeyDown, inputRef, selectRef,
 }: RowCompProps) {
   const groupLabel = group === "group_a" ? "A组" : group === "group_b" ? "B组" : "-";
-  const groupColor = group === "group_a" ? "var(--primary)" : group === "group_b" ? "#f59e0b" : "var(--text-muted)";
+  const groupColor = group === "group_a" ? "var(--ztocc-primary)" : group === "group_b" ? "#f59e0b" : "var(--ztocc-text-placeholder)";
 
   return (
-    <tr
-      className={`border-t border-white/5 transition-colors ${
-        hasRowError ? "bg-red-500/5" : "hover:bg-white/5"
-      }`}
-    >
+    <tr style={{
+      borderTop: "1px solid var(--ztocc-table-border)",
+      background: hasRowError ? "var(--danger-bg)" : undefined,
+    }}>
       {/* 行号 */}
-      <td className="p-0 sticky left-0 z-10 border-r border-white/10"
-          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
-        <div className="flex items-center justify-center h-full min-h-[36px]">
+      <td style={{
+        padding: 0,
+        position: "sticky",
+        left: 0,
+        zIndex: 10,
+        borderRight: "1px solid var(--ztocc-table-border)",
+        background: hasRowError ? "var(--danger-bg)" : "var(--ztocc-bg-card)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 36 }}>
           {hasRowError ? (
-            <span className="text-red-400 text-xs" title={rowErrors.join("\n")}>●</span>
+            <span style={{ color: "#ef4444", fontSize: 12 }} title={rowErrors.join("\n")}>●</span>
           ) : (
-            <span className="text-gray-500">{rowIndex + 1}</span>
+            <span style={{ color: "var(--ztocc-text-placeholder)" }}>{rowIndex + 1}</span>
           )}
         </div>
       </td>
       {/* 操作 */}
-      <td className="p-0 sticky left-9 z-10 border-r border-white/10"
-          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
-        <div className="flex items-center justify-center h-full min-h-[36px]">
+      <td style={{
+        padding: 0,
+        position: "sticky",
+        left: 36,
+        zIndex: 10,
+        borderRight: "1px solid var(--ztocc-table-border)",
+        background: hasRowError ? "var(--danger-bg)" : "var(--ztocc-bg-card)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 36 }}>
           <button
             onClick={() => deleteRow(rowIndex)}
-            className="text-red-400/70 hover:text-red-300 text-xs px-1"
+            style={{ color: "rgba(239, 68, 68, 0.7)", fontSize: 12, padding: "0 4px", background: "none", border: "none", cursor: "pointer" }}
             title="删除此行"
           >
             ✕
@@ -709,15 +761,24 @@ function RowComp({
         </div>
       </td>
       {/* A/B 组标记 */}
-      <td className="p-0 sticky left-[76px] z-10 border-r border-white/10"
-          style={{ background: hasRowError ? "rgba(239,68,68,0.05)" : "var(--bg-dark)" }}>
-        <div className="flex items-center justify-center h-full min-h-[36px]">
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                style={{
-                  color: groupColor,
-                  border: `1px solid ${groupColor}`,
-                  opacity: group === "none" ? 0.3 : 0.8,
-                }}>
+      <td style={{
+        padding: 0,
+        position: "sticky",
+        left: 76,
+        zIndex: 10,
+        borderRight: "1px solid var(--ztocc-table-border)",
+        background: hasRowError ? "var(--danger-bg)" : "var(--ztocc-bg-card)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 36 }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 500,
+            padding: "1px 6px",
+            borderRadius: 3,
+            color: groupColor,
+            border: `1px solid ${groupColor}`,
+            opacity: group === "none" ? 0.3 : 0.8,
+          }}>
             {groupLabel}
           </span>
         </div>
@@ -733,23 +794,45 @@ function RowComp({
         return (
           <td
             key={f.key}
-            className={`p-1 border-r border-white/5 last:border-r-0 relative ${
-              isError ? "bg-red-500/10" : ""
-            }`}
+            style={{
+              padding: 4,
+              borderRight: "1px solid var(--ztocc-table-border)",
+              position: "relative",
+              background: isError ? "var(--danger-bg)" : undefined,
+            }}
             onMouseEnter={() => setHoveredCell({ row: rowIndex, field: f.key })}
             onMouseLeave={() => setHoveredCell(null)}
             onDoubleClick={() => !isEditing && startEditing(rowIndex, f.key)}
           >
             {isError && isHovered && (
-              <div
-                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-red-600 text-white text-[11px] rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none"
-                style={{ maxWidth: "400px" }}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>!</span>
-                  <span>{cellError}</span>
-                </div>
-                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600" />
+              <div style={{
+                position: "absolute",
+                bottom: "100%",
+                left: "50%",
+                transform: "translateX(-50%)",
+                marginBottom: 4,
+                padding: "4px 10px",
+                background: "#dc2626",
+                color: "#fff",
+                fontSize: 11,
+                borderRadius: 6,
+                whiteSpace: "nowrap",
+                zIndex: 50,
+                pointerEvents: "none",
+                maxWidth: 400,
+              }}>
+                <span>! {cellError}</span>
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  width: 0,
+                  height: 0,
+                  borderLeft: "4px solid transparent",
+                  borderRight: "4px solid transparent",
+                  borderTop: "4px solid #dc2626",
+                }} />
               </div>
             )}
             {isEditing ? (
@@ -760,23 +843,32 @@ function RowComp({
                 onBlur={confirmEditing}
                 onKeyDown={(e) => handleCellKeyDown(e, rowIndex, f.key, cellValue)}
                 placeholder={f.required ? "必填" : ""}
-                className={`w-full bg-gray-800 border rounded-md px-2 py-1.5 outline-none transition-colors text-gray-200 ${
-                  isError ? "border-red-400 text-red-200 placeholder-red-400/50" : ""
-                }`}
-                style={!isError ? { borderColor: "var(--primary)" } : undefined}
+                className="input"
+                style={{
+                  width: "100%",
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  borderColor: isError ? "#ef4444" : "var(--ztocc-primary)",
+                }}
               />
             ) : (
-              <div
-                className={`px-2 py-1.5 min-h-[36px] flex items-center rounded-md transition-colors ${
-                  isError ? "text-red-200" : "text-gray-200"
-                } ${isHovered ? "bg-white/5" : ""}`}
-              >
-                <span className={`truncate ${!cellValue ? "text-gray-600" : ""}`}>
+              <div style={{
+                padding: "4px 8px",
+                minHeight: 36,
+                display: "flex",
+                alignItems: "center",
+                borderRadius: 4,
+                background: isHovered ? "var(--ztocc-table-row-hover)" : undefined,
+                cursor: "pointer",
+              }}>
+                <span style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: cellValue ? "var(--ztocc-text-primary)" : "var(--ztocc-text-placeholder)",
+                }}>
                   {cellValue || (f.required ? "（必填）" : "-")}
                 </span>
-                {isHovered && (
-                  <span className="ml-auto text-gray-600 text-[10px] shrink-0 pl-2">双击编辑</span>
-                )}
               </div>
             )}
           </td>

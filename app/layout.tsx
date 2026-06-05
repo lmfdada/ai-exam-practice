@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
-import { ConfigProvider, theme } from "antd";
+import { ConfigProvider } from "antd";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,29 +30,28 @@ export default function RootLayout({
         <AntdRegistry>
           <ConfigProvider
             theme={{
-              algorithm: theme.darkAlgorithm,
               token: {
-                colorPrimary: "#0fc6c2",
-                borderRadius: 8,
-                colorBgContainer: "#161b22",
-                colorBgElevated: "#1c2333",
-                colorBorder: "#30363d",
-                colorText: "#e6edf3",
-                colorTextSecondary: "#8b949e",
-                colorBgSpotlight: "rgba(15, 198, 194, 0.08)",
+                colorPrimary: "#00b9b9",
+                borderRadius: 4,
+                colorBgContainer: "#fff",
+                colorBgElevated: "#fff",
+                colorBorder: "#dcdfe6",
+                colorText: "#303133",
+                colorTextSecondary: "#909399",
+                colorBgSpotlight: "rgba(0, 185, 185, 0.08)",
               },
               components: {
                 Table: {
-                  headerBg: "#1c2333",
-                  borderColor: "#30363d",
-                  rowHoverBg: "rgba(15, 198, 194, 0.03)",
+                  headerBg: "#f5f7fa",
+                  borderColor: "#ebeef5",
+                  rowHoverBg: "#e6f9f9",
                 },
                 Modal: {
-                  contentBg: "#161b22",
-                  headerBg: "#161b22",
+                  contentBg: "#fff",
+                  headerBg: "#fff",
                 },
                 Upload: {
-                  colorBorder: "#30363d",
+                  colorBorder: "#dcdfe6",
                 },
               },
             }}

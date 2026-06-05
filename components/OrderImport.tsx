@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import type { ImportData } from "@/app/page";
+import RuleEditor from "./RuleEditor";
+import type { ParseRule } from "@/lib/rules";
 
 interface Props {
   onImportComplete: (data: ImportData) => void;
@@ -28,6 +30,9 @@ export default function OrderImport({ onImportComplete }: Props) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
   const [parseResult, setParseResult] = useState<ImportData | null>(null);
+  const [showRuleEditor, setShowRuleEditor] = useState(false);
+  const [editingRule, setEditingRule] = useState<Partial<ParseRule> | undefined>(undefined);
+  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ===== 加载规则列表 =====
@@ -45,6 +50,95 @@ export default function OrderImport({ onImportComplete }: Props) {
     }
     setRulesLoading(false);
   }, []);
+
+  // ===== 新建规则 =====
+  const handleNewRule = () => {
+    setEditingRule(undefined);
+    setShowRuleEditor(true);
+  };
+
+  // ===== 编辑规则 =====
+  const handleEditRule = (e: React.MouseEvent, rule: Rule) => {
+    e.stopPropagation();
+    setEditingRule({
+      id: rule.id,
+      name: rule.name,
+      description: rule.description,
+      fileTypes: rule.fileTypes as ("xlsx" | "xls" | "docx" | "pdf")[],
+    });
+    setShowRuleEditor(true);
+  };
+
+  // ===== 删除规则 =====
+  const handleDeleteRule = async (e: React.MouseEvent, ruleId: string) => {
+    e.stopPropagation();
+    if (!confirm(`确认删除规则「${rules.find(r => r.id === ruleId)?.name}」？`)) return;
+
+    try {
+      const res = await fetch(`/api/rules?ruleId=${ruleId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        setRules((prev) => prev.filter((r) => r.id !== ruleId));
+        if (selectedRule?.id === ruleId) setSelectedRule(null);
+      } else {
+        setError(json.message || "删除失败");
+      }
+    } catch {
+      setError("删除规则失败");
+    }
+  };
+
+  // ===== 复制规则 =====
+  const handleCopyRule = async (e: React.MouseEvent, rule: Rule) => {
+    e.stopPropagation();
+    try {
+      // 先获取完整规则详情
+      const res = await fetch(`/api/rules?ruleId=${rule.id}`);
+      const json = await res.json();
+      if (!json.success || !json.data) {
+        setError("获取规则详情失败");
+        return;
+      }
+
+      const ruleData = json.data;
+      // 创建副本（不传 ruleId 即为新建）
+      const copyRes = await fetch("/api/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${rule.name} (副本)`,
+          description: rule.description,
+          fileTypes: rule.fileTypes,
+          config: ruleData.config || {},
+        }),
+      });
+      const copyJson = await copyRes.json();
+      if (copyJson.success) {
+        await loadRules();
+      } else {
+        setError(copyJson.message || "复制失败");
+      }
+    } catch {
+      setError("复制规则失败");
+    }
+  };
+
+  // ===== 规则保存回调 =====
+  const handleRuleSaved = (savedRule: ParseRule) => {
+    setShowRuleEditor(false);
+    setEditingRule(undefined);
+    // 刷新规则列表
+    loadRules();
+    // 自动选中新保存的规则
+    setSelectedRule({
+      id: savedRule.id,
+      name: savedRule.name,
+      description: savedRule.description,
+      fileTypes: savedRule.fileTypes as string[],
+      usedCount: 0,
+      isAiGenerated: !!(savedRule as unknown as Record<string, unknown>).isAiGenerated,
+    });
+  };
 
   // ===== 选择已有规则 =====
   const handleSelectRule = (rule: Rule) => {
@@ -217,9 +311,14 @@ export default function OrderImport({ onImportComplete }: Props) {
           <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
             已有解析规则
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={loadRules}>
-            刷新
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-sm btn-ghost" onClick={loadRules}>
+              刷新
+            </button>
+            <button className="btn btn-sm btn-primary" onClick={handleNewRule}>
+              + 新建规则
+            </button>
+          </div>
         </div>
 
         {rulesLoading ? (
@@ -241,7 +340,7 @@ export default function OrderImport({ onImportComplete }: Props) {
               暂无保存的规则
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              点击加载或使用以下按钮创建新规则
+              点击加载或点击「+ 新建规则」创建新规则
             </div>
           </div>
         ) : (
@@ -262,7 +361,7 @@ export default function OrderImport({ onImportComplete }: Props) {
                 }}
                 onClick={() => handleSelectRule(rule)}
               >
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
                     {rule.name}
                     {rule.isAiGenerated && (
@@ -275,8 +374,31 @@ export default function OrderImport({ onImportComplete }: Props) {
                     {rule.description || rule.fileTypes.join(", ")}
                   </div>
                 </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  已用 {rule.usedCount || 0} 次
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    已用 {rule.usedCount || 0} 次
+                  </span>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={(e) => handleEditRule(e, rule)}
+                    title="编辑规则"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={(e) => handleCopyRule(e, rule)}
+                    title="复制规则"
+                  >
+                    复制
+                  </button>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    onClick={(e) => handleDeleteRule(e, rule.id)}
+                    title="删除规则"
+                  >
+                    删除
+                  </button>
                 </div>
               </div>
             ))}
@@ -287,19 +409,19 @@ export default function OrderImport({ onImportComplete }: Props) {
       {/* 操作按钮 */}
       <div style={{ display: "flex", gap: 12 }}>
         <button
-          className="btn btn-primary btn-lg"
+          className="btn btn-primary"
           onClick={handleAIGenerate}
-          style={{ flex: 1 }}
+          style={{ flex: 1, height: 36 }}
         >
-          🤖 AI 智能生成规则
+          AI 智能生成规则
         </button>
         <button
-          className="btn btn-secondary btn-lg"
+          className="btn btn-secondary"
           onClick={() => {
             setSelectedRule(null);
             setStep("upload");
           }}
-          style={{ flex: 1 }}
+          style={{ flex: 1, height: 36 }}
         >
           直接上传（自动解析）
         </button>
@@ -355,9 +477,41 @@ export default function OrderImport({ onImportComplete }: Props) {
           textAlign: "center",
           borderStyle: "dashed",
           cursor: "pointer",
-          borderColor: file ? "var(--primary)" : "var(--border-color)",
+          borderColor: dragOver
+            ? "var(--ztocc-primary)"
+            : file
+              ? "var(--primary)"
+              : "var(--border-color)",
+          background: dragOver ? "rgba(0,185,185,0.04)" : "var(--bg-card)",
+          transition: "all 0.2s",
         }}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => !file && fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(false);
+          const droppedFiles = e.dataTransfer.files;
+          if (droppedFiles.length > 0) {
+            const f = droppedFiles[0];
+            const ext = f.name.split(".").pop()?.toLowerCase() || "";
+            if (["xlsx", "xls", "pdf", "docx", "csv"].includes(ext)) {
+              setFile(f);
+              setError("");
+            } else {
+              setError("不支持的文件格式，请上传 .xlsx .xls .pdf .docx .csv 文件");
+            }
+          }
+        }}
       >
         <input
           ref={fileInputRef}
@@ -385,9 +539,11 @@ export default function OrderImport({ onImportComplete }: Props) {
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 40, marginBottom: 8, opacity: 0.4 }}>📂</div>
+            <div style={{ fontSize: 40, marginBottom: 8, opacity: dragOver ? 1 : 0.4 }}>
+              {dragOver ? "📥" : "📂"}
+            </div>
             <div style={{ fontSize: 15, color: "var(--text-secondary)", marginBottom: 4 }}>
-              点击上传文件
+              {dragOver ? "松开以上传文件" : "拖拽文件到此处或点击上传"}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
               支持 .xlsx .xls .pdf .docx .csv 格式
@@ -531,6 +687,47 @@ export default function OrderImport({ onImportComplete }: Props) {
           <button className="btn btn-secondary" onClick={() => setStep("upload")}>
             重新上传
           </button>
+          {selectedRule?.isAiGenerated && (
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                // 从 selectedRule 获取 AI 生成的规则信息并保存
+                try {
+                  const res = await fetch("/api/rules", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      ruleId: selectedRule.id.startsWith("ai_") ? undefined : selectedRule.id,
+                      name: selectedRule.name || `AI规则_${Date.now()}`,
+                      description: selectedRule.description || "AI 自动生成",
+                      fileTypes: ["xlsx"],
+                      config: {
+                        sheets: "auto",
+                        headerDetection: "auto",
+                        columns: parseResult.headers.map((h) => ({
+                          sourceHeader: h,
+                          targetField: parseResult.mapping[h] || "",
+                        })),
+                        steps: [],
+                      },
+                    }),
+                  });
+                  const json = await res.json();
+                  if (json.success) {
+                    loadRules();
+                    setError("");
+                    alert("规则已保存！可在我已保存的规则中查看");
+                  } else {
+                    setError(json.message || "保存规则失败");
+                  }
+                } catch {
+                  setError("保存规则失败");
+                }
+              }}
+            >
+              💾 保存为规则
+            </button>
+          )}
           <button
             className="btn btn-primary btn-lg"
             onClick={handleConfirmMapping}
@@ -567,11 +764,43 @@ export default function OrderImport({ onImportComplete }: Props) {
   );
 
   return (
-    <div className="animate-fadeIn">
-      {step === "select" && renderSelectStep()}
-      {step === "generating" && renderGeneratingStep()}
-      {step === "upload" && renderUploadStep()}
-      {step === "mapping" && renderMappingStep()}
-    </div>
+    <>
+      <div className="animate-fadeIn" style={{ display: showRuleEditor ? "none" : "block" }}>
+        {step === "select" && renderSelectStep()}
+        {step === "generating" && renderGeneratingStep()}
+        {step === "upload" && renderUploadStep()}
+        {step === "mapping" && renderMappingStep()}
+      </div>
+
+      {/* 规则编辑器覆盖层 */}
+      {showRuleEditor && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.4)",
+          zIndex: 1000,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}>
+          <div style={{
+            width: "100%",
+            maxWidth: 680,
+            maxHeight: "90vh",
+            overflow: "auto",
+          }}>
+            <RuleEditor
+              rule={editingRule}
+              onSave={handleRuleSaved}
+              onCancel={() => {
+                setShowRuleEditor(false);
+                setEditingRule(undefined);
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
