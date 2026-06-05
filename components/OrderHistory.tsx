@@ -2,7 +2,7 @@
 
 import { useState, useCallback, startTransition, useEffect } from "react";
 
-interface OrderRecord {
+interface OrderRow {
   id: number;
   external_code: string;
   receiver_store: string;
@@ -13,13 +13,14 @@ interface OrderRecord {
   sku_name: string;
   sku_qty: number;
   sku_spec: string;
+  temperature_layer: string;
   remark: string;
   batch_id: string;
   created_at: string;
 }
 
 export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -188,6 +189,7 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
                 <th>SKU物品名称</th>
                 <th>SKU数量</th>
                 <th>SKU规格型号</th>
+                <th>温层</th>
                 <th>备注</th>
                 <th>批次号</th>
                 <th>提交时间</th>
@@ -196,7 +198,7 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="p-8 text-center"
+                  <td colSpan={14} className="p-8 text-center"
                       style={{ color: "var(--ztocc-text-secondary)" }}>
                     <div className="inline-flex items-center gap-2">
                       <div className="w-4 h-4 border-2 rounded-full animate-spin"
@@ -207,7 +209,7 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="p-8 text-center"
+                  <td colSpan={14} className="p-8 text-center"
                       style={{ color: "var(--ztocc-text-secondary)" }}>
                     <div style={{ padding: "20px 0" }}>
                       <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}>
@@ -276,6 +278,9 @@ export default function OrderHistory({ refreshKey }: { refreshKey?: number }) {
                     </td>
                     <td className="p-2" style={{ color: "var(--ztocc-text-primary)" }}>
                       {order.sku_spec || <span style={{ color: "var(--ztocc-text-placeholder)" }}>-</span>}
+                    </td>
+                    <td className="p-2 whitespace-nowrap" style={{ color: "var(--ztocc-text-primary)" }}>
+                      {order.temperature_layer || <span style={{ color: "var(--ztocc-text-placeholder)" }}>-</span>}
                     </td>
                     <td className="p-2 truncate max-w-[120px]" title={order.remark}
                         style={{ color: "var(--ztocc-text-secondary)" }}>

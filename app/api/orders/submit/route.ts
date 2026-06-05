@@ -77,11 +77,11 @@ export async function POST(request: NextRequest) {
           return sql`
             INSERT INTO orders (
               external_code, receiver_store, receiver_name, receiver_phone, receiver_address,
-              sku_code, sku_name, sku_qty, sku_spec, remark, batch_id
+              sku_code, sku_name, sku_qty, sku_spec, temperature_layer, remark, batch_id
             ) VALUES (
               ${r.external_code || ""}, ${r.receiver_store || ""}, ${r.receiver_name || ""},
               ${r.receiver_phone || ""}, ${r.receiver_address || ""}, ${r.sku_code || ""},
-              ${r.sku_name || ""}, ${r.sku_qty || 0}, ${r.sku_spec || ""}, ${r.remark || ""}, ${bid}
+              ${r.sku_name || ""}, ${r.sku_qty || 0}, ${r.sku_spec || ""}, ${r.temperature_layer || ""}, ${r.remark || ""}, ${bid}
             )
           `;
         })

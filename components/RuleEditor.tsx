@@ -21,6 +21,7 @@ const STANDARD_FIELDS = [
   { key: "sku_name", label: "SKU物品名称", required: true },
   { key: "sku_qty", label: "SKU发货数量", required: true },
   { key: "sku_spec", label: "SKU规格型号", required: false },
+  { key: "temperature_layer", label: "温层", required: false },
   { key: "remark", label: "备注", required: false },
 ];
 

@@ -781,6 +781,7 @@ export default function OrderImport({ onImportComplete }: Props) {
       { key: "sku_name", label: "SKU物品名称" },
       { key: "sku_qty", label: "SKU发货数量" },
       { key: "sku_spec", label: "SKU规格型号" },
+      { key: "temperature_layer", label: "温层" },
       { key: "remark", label: "备注" },
     ];
 

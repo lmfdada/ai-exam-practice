@@ -14,6 +14,7 @@ interface PreviewRow {
   sku_name: string;
   sku_qty: string;
   sku_spec: string;
+  temperature_layer: string;
   remark: string;
 }
 
@@ -45,6 +46,7 @@ function emptyRow(): PreviewRow {
     sku_name: "",
     sku_qty: "",
     sku_spec: "",
+    temperature_layer: "",
     remark: "",
   };
 }

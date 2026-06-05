@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS orders (
   sku_name TEXT NOT NULL DEFAULT '',
   sku_qty REAL NOT NULL DEFAULT 0,
   sku_spec TEXT DEFAULT '',
+  temperature_layer TEXT DEFAULT '',
   remark TEXT DEFAULT '',
   batch_id TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()

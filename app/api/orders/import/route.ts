@@ -84,6 +84,8 @@ const cellValue = (v: unknown): string => {
     if (Array.isArray(obj.richText)) {
       return obj.richText.map((rt: Record<string, unknown>) => String(rt.text ?? "")).join("");
     }
+    // Formula object { formula, result }
+    if (obj.result !== undefined && obj.result !== null) return String(obj.result);
     // Structured reference or unknown internal object
     return "";
   }
@@ -143,7 +145,27 @@ async function parseExcelSheets(
     const rawHeaders = rows[headerRow]?.map((h) => String(h || "").trim()) || [];
     const skipBefore = rule?.config?.skipRowsBeforeHeader ?? 0;
     const dataRows = rows.slice(skipBefore || headerRow + 1)
-      .filter((r) => r.some((c) => String(c || "").trim() !== ""));
+      .filter((r) => r.some((c) => String(c || "").trim() !== ""))
+      // 过滤噪声行：卡片头（▶ 调拨记录）、汇总行（小计/合计/总计）、单据信息行等非明细行
+      .filter((r) => {
+        // 检查是否有单元格以特殊字符开头
+        const hasSpecialChar = r.some((c) => /^[▶■◆●▲▼]/.test(String(c || "").trim()));
+        if (hasSpecialChar) return false;
+        // 检查是否有单元格包含汇总关键词
+        const hasSummary = r.some((c) => /(小计|合计|总计|subtotal|total|合计：|总计：|合计：.*个门店)/i.test(String(c || "").trim()));
+        if (hasSummary) return false;
+        // 检查第一列是否为信息类关键词（卡片式布局中的调入门店、收货人等非明细行）
+        const firstVal = String(r[0] || "").trim();
+        if (/^(调入门店|调入门店：|收货人|收货人：|收货地址|收货地址：|收货电话|收货电话：|收货信息|发货信息|单据编号|单据编号：)$/i.test(firstVal)) return false;
+        // 检查是否为重复表头行（与表头相同或几乎相同）
+        const matchCount = r.reduce((count, cell, idx) => {
+          const cellStr = String(cell || "").trim();
+          const headerStr = String(rawHeaders[idx] || "").trim();
+          return cellStr === headerStr || (cellStr && headerStr && headerStr.includes(cellStr)) ? count + 1 : count;
+        }, 0);
+        if (matchCount >= Math.min(rawHeaders.length, 2)) return false;
+        return true;
+      });
 
     result.push({
       sourceName: ws.name,
@@ -604,7 +626,7 @@ async function handleNonStreamImport(
         // 检查是否有标准字段，如果没有，回退到无规则解析
         const hasStandardFields = allHeaders.some((h) => 
           ["external_code", "receiver_store", "receiver_name", "receiver_phone", 
-           "receiver_address", "sku_code", "sku_name", "sku_qty", "sku_spec", "remark"].includes(h)
+           "receiver_address", "sku_code", "sku_name", "sku_qty", "sku_spec", "temperature_layer", "remark"].includes(h)
         );
         if (!hasStandardFields) {
           // 回退到无规则的解析方式

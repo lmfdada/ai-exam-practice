@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
         { header: "SKU物品名称", key: "sku_name", width: 20 },
         { header: "SKU发货数量", key: "sku_qty", width: 14 },
         { header: "SKU规格型号", key: "sku_spec", width: 16 },
+        { header: "温层", key: "temperature_layer", width: 12 },
         { header: "备注", key: "remark", width: 20 },
       ];
 
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
         ["SKU物品名称", "物品的名称", "是"],
         ["SKU发货数量", "物品的发货数量", "是"],
         ["SKU规格型号", "物品的规格型号信息", "否"],
+        ["温层", "温层类型（常温/冷藏/冷冻/恒温/冰鲜）", "否"],
         ["备注", "附加备注信息", "否"],
       ]);
 
