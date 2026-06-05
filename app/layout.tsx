@@ -83,19 +83,20 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             <div
               className="sidebar-logo-img"
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 4,
+                width: 36,
+                height: 36,
+                borderRadius: 6,
                 background: "linear-gradient(135deg, #0fc6c2, #0da8a4)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: "bold",
                 color: "#fff",
+                boxShadow: "0 2px 8px rgba(15, 198, 194, 0.3)",
               }}
             >
-              M
+              鲸
             </div>
             <div>
               <div className="sidebar-logo-text">{t("app.title")}</div>
@@ -150,9 +151,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               >
                 <span style={{ fontSize: 18, lineHeight: 1 }}>☰</span>
               </button>
+              <span className="top-header-brand">鲸天</span>
+              <span className="top-header-brand-divider" />
               <div className="top-header-title">{pageTitle}</div>
             </div>
             <div className="top-header-right">
+              {/* 品牌标识 */}
+              <span className="top-header-badge">ZTOCC</span>
               {/* 主题切换 */}
               <button
                 className="header-icon-btn"

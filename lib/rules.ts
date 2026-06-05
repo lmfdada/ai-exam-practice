@@ -105,6 +105,11 @@ export interface ParseResult {
 export function executeRule(rule: ParseRule, context: ParseContext): ParseResult {
   let rows = applyColumnMapping(rule, context);
   rows = applyPostProcessors(rule, rows, context);
+  // 移除内部字段 _srcIndex
+  rows = rows.map((row) => {
+    const { _srcIndex, ...clean } = row;
+    return clean;
+  });
   return { rows, errors: [] };
 }
 
@@ -126,8 +131,8 @@ function applyColumnMapping(rule: ParseRule, context: ParseContext): Record<stri
     });
   }
 
-  return rawRows.map((row) => {
-    const mapped: Record<string, string> = {};
+  return rawRows.map((row, rowIndex) => {
+    const mapped: Record<string, string> = { _srcIndex: String(rowIndex) };
 
     for (const col of columns) {
       let value = "";
@@ -645,32 +650,36 @@ function applyCardSplit(
   }
 
   // ----- 将卡片头信息应用到对应的数据行 -----
-  // 我们需要根据行号将 mapped rows 分配到各个卡片
-  // 由于 column mapping 已经改变了数据结构，我们通过源行号来匹配
-  // 简化方案：均匀分配。假设第一个卡片的行在 mapped rows 的前 N/len(cards) 部分
-  // 更精确的方案需要 fullRows 与 mapped rows 的行对应关系
-
-  // 简化的分配方案：将 mapped rows 按卡片边界比例切分
+  // 使用 _srcIndex（原始行号）精确匹配每一行所属的卡片
+  // _srcIndex 在 applyColumnMapping 中注入，对应 rawRows 中的行索引
+  // 转换为 fullRows 索引：fullRowIdx = headerRowIdx + 1 + _srcIndex
   if (cardHeaders.length === 0) return rows;
 
-  const totalCardRows = rows.length;
+  const dataRowOffset = headerRowIdx + 1; // rawRows[0] 对应 fullRows[headerRowIdx + 1]
   const result: Record<string, string>[] = [];
 
-  for (let ci = 0; ci < cardHeaders.length; ci++) {
-    const fields = cardHeaders[ci].fields;
-    if (Object.keys(fields).length === 0) continue;
+  for (const row of rows) {
+    const srcIdx = parseInt(row._srcIndex || "0", 10);
+    const fullRowIdx = dataRowOffset + srcIdx;
 
-    // 计算此卡片应分到的行数范围
-    const startIdx = Math.floor(
-      (ci / cardHeaders.length) * totalCardRows
-    );
-    const endIdx = Math.floor(
-      ((ci + 1) / cardHeaders.length) * totalCardRows
-    );
+    // 找到该行所属的卡片
+    let matchedCardIdx = -1;
+    for (let ci = 0; ci < cardBoundaries.length; ci++) {
+      const cardStart = cardBoundaries[ci];
+      const cardEnd =
+        ci < cardBoundaries.length - 1
+          ? cardBoundaries[ci + 1]
+          : Infinity;
+      if (fullRowIdx >= cardStart && fullRowIdx < cardEnd) {
+        matchedCardIdx = ci;
+        break;
+      }
+    }
 
-    // 将卡片头信息应用到该分片的所有行
-    for (let ri = startIdx; ri < endIdx && ri < rows.length; ri++) {
-      result.push({ ...rows[ri], ...fields });
+    if (matchedCardIdx >= 0) {
+      result.push({ ...row, ...cardHeaders[matchedCardIdx].fields });
+    } else {
+      result.push({ ...row }); // 未匹配到任何卡片时保持原样
     }
   }
 

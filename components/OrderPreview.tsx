@@ -32,6 +32,7 @@ interface Props {
 const SUBMIT_BATCH_SIZE = 200;
 const VIRTUAL_THRESHOLD = 500;
 const ROW_HEIGHT = 42;
+const MEMORY_WARN_THRESHOLD = 5000; // 超过此行数弹出内存警告
 
 function emptyRow(): PreviewRow {
   return {
@@ -395,6 +396,11 @@ export default function OrderPreview({ data, onBack, onSubmitSuccess }: Props) {
               : `共 ${rows.length} 行`}
             {rows.length > 500 && (
               <span style={{ color: "#d97706", marginLeft: 8 }}>⚠ 批量数据</span>
+            )}
+            {rows.length > MEMORY_WARN_THRESHOLD && (
+              <span style={{ color: "#dc2626", marginLeft: 8, fontSize: 11 }}>
+                ⚠ 数据量较大（{rows.length}条），建议分批提交操作以优化浏览器内存
+              </span>
             )}
             {hasErrors ? (
               <span style={{ color: "#ef4444", marginLeft: 8, fontWeight: 500 }}>
@@ -787,10 +793,14 @@ function RowComp({
   const groupColor = group === "group_a" ? "var(--ztocc-primary)" : group === "group_b" ? "#f59e0b" : "var(--ztocc-text-placeholder)";
 
   return (
-    <tr style={{
-      borderTop: "1px solid var(--ztocc-table-border)",
-      background: hasRowError ? "var(--danger-bg)" : undefined,
-    }}>
+    <tr
+      className="preview-row"
+      style={{
+        borderTop: "1px solid var(--ztocc-table-border)",
+        background: hasRowError ? "var(--danger-bg)" : undefined,
+        transition: "background 0.15s ease",
+      }}
+    >
       {/* 行号 */}
       <td style={{
         padding: 0,

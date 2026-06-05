@@ -732,4 +732,142 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* ===== 头部品牌标识 ===== */
+.top-header-brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  letter-spacing: 1px;
+}
+
+.top-header-brand-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.top-header-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.5px;
+}
+
+/* ===== 微交互动效增强 ===== */
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.12);
+}
+
+/* 表格行悬停过渡 */
+.table-container tr {
+  transition: background 0.15s ease;
+}
+
+.preview-row:hover {
+  background: rgba(15, 198, 194, 0.04) !important;
+}
+
+/* 输入框交互动效 */
+.input {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input:focus {
+  border-color: var(--ztocc-primary);
+  box-shadow: 0 0 0 2px rgba(15, 198, 194, 0.12);
+}
+
+/* 标签页切换过渡 */
+.tab {
+  transition: all 0.2s ease;
+}
+
+/* 进度条交互动效 */
+.progress-bar-fill {
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===== 响应式增强 ===== */
+.main-content {
+  min-width: 0;  /* 防止 flex 溢出 */
+  overflow-x: auto;
+}
+
+/* 表格容器溢出 */
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-container table {
+  min-width: 700px; /* 确保表格在窄屏可滚动 */
+}
+
+/* 中等屏幕导航压缩 */
+@media (max-width: 1024px) {
+  .top-header-right .top-header-badge {
+    display: none; /* 中屏隐藏品牌角标释放空间 */
+  }
+
+  .top-header-right span:last-child {
+    display: none; /* 中屏隐藏"管理员"文字 */
+  }
+}
+
+/* 平板端表格字号压缩 */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .main-content {
+    padding: 12px;
+  }
+}
+
+/* 极限窄屏保护 */
+@media (max-width: 480px) {
+  .main-content {
+    padding: 8px;
+  }
+
+  .top-header {
+    padding: 0 12px;
+  }
+
+  .top-header-brand {
+    display: none; /* 超窄屏隐藏品牌名 */
+  }
+
+  .top-header-brand-divider {
+    display: none;
+  }
+
+  .top-header-title {
+    font-size: 13px;
+  }
+
+  .card {
+    border-radius: 3px;
+  }
+
+  /* 表格操作列聚合 */
+  .table-container th,
+  .table-container td {
+    padding: 4px 6px;
+    font-size: 11px;
+    white-space: normal;
+    word-break: break-all;
+  }
+}
+
 
