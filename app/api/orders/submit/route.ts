@@ -61,35 +61,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "所有数据校验均未通过", failed: failed.map((f: { errors: string[]; row: Record<string, unknown> }) => ({ errors: f.errors, row: f.row })) });
     }
 
-    // 批量写入
+    // 批量写入——并发单条 INSERT
     const insertedRows: Record<string, unknown>[] = [];
     const writeErrors: { row: Record<string, unknown>; error: string }[] = [];
 
-    for (const item of successRows) {
-      const r = item.row;
-      try {
-        const result = await sql`
-          INSERT INTO orders (
-            external_code, receiver_store, receiver_name, receiver_phone, receiver_address,
-            sku_code, sku_name, sku_qty, sku_spec, remark, batch_id
-          ) VALUES (
-            ${r.external_code || ""},
-            ${r.receiver_store || ""},
-            ${r.receiver_name || ""},
-            ${r.receiver_phone || ""},
-            ${r.receiver_address || ""},
-            ${r.sku_code || ""},
-            ${r.sku_name || ""},
-            ${r.sku_qty || 0},
-            ${r.sku_spec || ""},
-            ${r.remark || ""},
-            ${bid}
-          )
-          RETURNING id
-        `;
-        insertedRows.push({ ...r, id: (result as Record<string, unknown>[])[0]?.id });
-      } catch (writeErr) {
-        writeErrors.push({ row: r, error: String(writeErr) });
+    if (successRows.length > 0) {
+      const insertResults = await Promise.allSettled(
+        successRows.map((item: { row: Record<string, unknown> }) => {
+          const r = item.row;
+          return sql`
+            INSERT INTO orders (
+              external_code, receiver_store, receiver_name, receiver_phone, receiver_address,
+              sku_code, sku_name, sku_qty, sku_spec, remark, batch_id
+            ) VALUES (
+              ${r.external_code || ""}, ${r.receiver_store || ""}, ${r.receiver_name || ""},
+              ${r.receiver_phone || ""}, ${r.receiver_address || ""}, ${r.sku_code || ""},
+              ${r.sku_name || ""}, ${r.sku_qty || 0}, ${r.sku_spec || ""}, ${r.remark || ""}, ${bid}
+            )
+          `;
+        })
+      );
+
+      for (let idx = 0; idx < insertResults.length; idx++) {
+        const res = insertResults[idx];
+        if (res.status === "fulfilled") {
+          insertedRows.push({ ...successRows[idx].row, id: null });
+        } else {
+          writeErrors.push({ row: successRows[idx].row, error: res.reason });
+        }
       }
     }
 

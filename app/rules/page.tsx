@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import RuleEditor from "@/components/RuleEditor";
+import EmptyState from "@/components/EmptyState";
+import { useToast } from "@/components/Toast";
 import type { ParseRule } from "@/lib/rules";
 
 interface Rule {
@@ -21,6 +23,8 @@ export default function RulesPage() {
   const [editingRule, setEditingRule] = useState<Partial<ParseRule> | undefined>(undefined);
   const [searchText, setSearchText] = useState("");
 
+  const toast = useToast().toast;
+
   const loadRules = useCallback(async () => {
     setLoading(true);
     try {
@@ -30,6 +34,7 @@ export default function RulesPage() {
         setRules(json.data || []);
       }
     } catch {
+      toast("error", "加载规则列表失败");
       setError("加载规则列表失败");
     }
     setLoading(false);
@@ -172,23 +177,17 @@ export default function RulesPage() {
             加载中...
           </div>
         ) : filteredRules.length === 0 ? (
-          <div
-            style={{
-              padding: 60,
-              textAlign: "center",
-              color: "var(--ztocc-text-secondary)",
-            }}
-          >
-            <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>📋</div>
-            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
-              {searchText ? "未找到匹配的规则" : "暂无规则"}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--ztocc-text-placeholder)", marginBottom: 16 }}>
-              {searchText
-                ? "尝试其他关键词"
-                : "点击上方「新建规则」按钮创建第一条规则"}
-            </div>
-          </div>
+          <EmptyState
+            title={searchText ? "未找到匹配的规则" : "暂无规则"}
+            description={searchText ? "尝试其他关键词" : "点击上方「新建规则」按钮创建第一条规则"}
+            action={
+              searchText ? undefined : (
+                <button className="btn btn-primary btn-sm" onClick={handleCreateRule}>
+                  + 新建规则
+                </button>
+              )
+            }
+          />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {filteredRules.map((rule) => (

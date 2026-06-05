@@ -3,6 +3,8 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { ImportData } from "@/app/import/page";
 import RuleEditor from "./RuleEditor";
+import EmptyState from "./EmptyState";
+import { useToast } from "./Toast";
 import type { ParseRule } from "@/lib/rules";
 
 interface Props {
@@ -40,6 +42,7 @@ export default function OrderImport({ onImportComplete }: Props) {
   const [isAiGenerated, setIsAiGenerated] = useState(false);
   const [aiDisclaimer, setAiDisclaimer] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast().toast;
 
   // ===== 加载规则列表 =====
   const loadRules = useCallback(async () => {
@@ -105,6 +108,7 @@ export default function OrderImport({ onImportComplete }: Props) {
         setError(json.message || "删除失败");
       }
     } catch {
+      toast("error", "删除规则失败");
       setError("删除规则失败");
     }
   };
@@ -116,6 +120,7 @@ export default function OrderImport({ onImportComplete }: Props) {
       const res = await fetch(`/api/rules?ruleId=${rule.id}`);
       const json = await res.json();
       if (!json.success || !json.data) {
+        toast("error", "获取规则详情失败");
         setError("获取规则详情失败");
         return;
       }
@@ -135,9 +140,11 @@ export default function OrderImport({ onImportComplete }: Props) {
       if (copyJson.success) {
         await loadRules();
       } else {
-        setError(copyJson.message || "复制失败");
-      }
+          toast("error", copyJson.message || "复制失败");
+          setError(copyJson.message || "复制失败");
+        }
     } catch {
+      toast("error", "复制规则失败");
       setError("复制规则失败");
     }
   };
@@ -219,6 +226,7 @@ export default function OrderImport({ onImportComplete }: Props) {
       setParseResult(result);
       setStep("mapping");
     } catch (err) {
+      toast("error", err instanceof Error ? err.message : "上传失败");
       setError(err instanceof Error ? err.message : "上传失败");
     }
 
@@ -277,6 +285,7 @@ export default function OrderImport({ onImportComplete }: Props) {
   const handleFileSelected = (f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() || "";
     if (!["xlsx", "xls", "pdf", "docx", "csv"].includes(ext)) {
+      toast("error", "不支持的文件格式，请上传 .xlsx .xls .pdf .docx .csv 文件");
       setError("不支持的文件格式，请上传 .xlsx .xls .pdf .docx .csv 文件");
       return;
     }
@@ -482,7 +491,19 @@ export default function OrderImport({ onImportComplete }: Props) {
             gap: 12,
             borderLeft: "3px solid var(--primary)",
           }}>
-            <span style={{ fontSize: 28 }}>📄</span>
+            <span style={{ fontSize: 28, display: "flex", flexShrink: 0, color: "var(--primary)" }}>
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="2" width="14" height="20" rx="2" fill="currentColor" opacity="0.15" />
+              <rect x="6" y="3" width="12" height="18" rx="1.5" fill="currentColor" opacity="0.08" />
+              <line x1="9" y1="7" x2="15" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.35" />
+              <line x1="9" y1="10" x2="14" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.25" />
+              <line x1="9" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.18" />
+              <rect x="15" y="12" width="11" height="14" rx="2" fill="currentColor" opacity="0.12" />
+              <rect x="16" y="13" width="9" height="12" rx="1.5" fill="currentColor" opacity="0.06" />
+              <line x1="18" y1="16" x2="23" y2="16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.3" />
+              <line x1="18" y1="19" x2="22" y2="19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.2" />
+            </svg>
+          </span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
                 {file.name}
@@ -570,16 +591,15 @@ export default function OrderImport({ onImportComplete }: Props) {
                     加载中...
                   </div>
                 ) : rules.length === 0 ? (
-                  <div style={{
-                    padding: 16,
-                    textAlign: "center",
-                    fontSize: 13,
-                    color: "var(--text-muted)",
-                    border: "1px dashed var(--border-color)",
-                    borderRadius: 6,
-                  }}>
-                    暂无保存的规则
-                  </div>
+                  <EmptyState
+                    title="暂无保存的规则"
+                    description="创建解析规则后在此显示"
+                    action={
+                      <button className="btn btn-primary btn-sm" onClick={() => { setShowRuleEditor(true); setEditingRule(undefined); }}>
+                        + 新建规则
+                      </button>
+                    }
+                  />
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflow: "auto" }}>
                     {rules.map((rule) => (

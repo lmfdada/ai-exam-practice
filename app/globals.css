@@ -523,6 +523,19 @@ body {
   justify-content: center;
   padding: 60px 20px;
   color: var(--ztocc-text-placeholder);
+  animation: fadeIn 0.4s ease-out;
+}
+
+.empty-state:hover .empty-state-svg {
+  opacity: 0.6;
+  transform: scale(1.02);
+  transition: all 0.35s ease;
+}
+
+.empty-state-svg {
+  opacity: 0.4;
+  transition: all 0.35s ease;
+  color: var(--ztocc-text-secondary);
 }
 
 .empty-state-icon {
@@ -622,7 +635,8 @@ body {
     left: 0;
     bottom: 0;
     z-index: 100;
-    transition: transform 0.3s ease;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
   }
 
   .sidebar-closed {
@@ -639,6 +653,12 @@ body {
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 99;
+    animation: fadeInOverlay 0.25s ease-out;
+  }
+
+  @keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .top-header-title {
@@ -647,6 +667,39 @@ body {
 
   .main-content {
     padding: 12px;
+  }
+
+  /* 移动端操作按钮聚合 */
+  .action-bar-mobile {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .action-bar-mobile .btn {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 6px 10px;
+    height: 30px;
+  }
+
+  /* 移动端卡片间距压缩 */
+  .card {
+    margin-bottom: 10px;
+  }
+
+  /* 移动端表格单元格缩小 */
+  .table-container th,
+  .table-container td {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  /* 移动端空状态 */
+  .empty-state {
+    padding: 40px 16px;
   }
 }
 

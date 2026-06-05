@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { AppProvider, useApp } from "@/lib/app-context";
+import { ToastProvider } from "@/components/Toast";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -191,7 +192,9 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <AntdRegistry>
           <AppProvider>
-            <LayoutInner>{children}</LayoutInner>
+            <ToastProvider>
+              <LayoutInner>{children}</LayoutInner>
+            </ToastProvider>
           </AppProvider>
         </AntdRegistry>
       </body>
