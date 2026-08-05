@@ -142,9 +142,23 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
   const filePath = path.join(importDir, `${taskId}${extension}`);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
   const createdAt = now();
+  const task: ImportTask = {
+    task_id: taskId,
+    trace_id: traceId,
+    file_name: file.name,
+    status: "PENDING",
+    total_rows: 0,
+    processed_rows: 0,
+    success_rows: 0,
+    failed_rows: 0,
+    total_batches: 0,
+    completed_batches: 0,
+    degraded: false,
+    created_at: createdAt,
+    completed_at: null,
+  };
   const sql = getDb();
   const eventId = id("evt");
-  const traceEventId = id("trace");
   if (sql.transactionQueries) {
     await sql.transactionQueries([
       {
@@ -157,13 +171,8 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
           VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
         values: [eventId, taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
       },
-      {
-        sql: `INSERT INTO trace_events (id, trace_id, task_id, unit_id, event_name, event_status, message, occurred_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        values: [traceEventId, traceId, taskId, null, "ImportTaskCreated", "success", "任务创建并写入 Outbox", createdAt],
-      },
     ]);
-    return getImportTask(taskId);
+    return task;
   }
   const writeTask = async (tx: ReturnType<typeof getDb>) => {
     await tx.query(
@@ -176,11 +185,10 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
        VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
       [id("evt"), taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
     );
-    await trace(tx, traceId, taskId, "ImportTaskCreated", "success", "任务创建并写入 Outbox");
   };
   if (sql.transaction) await sql.transaction(writeTask);
   else await writeTask(sql);
-  return getImportTask(taskId);
+  return task;
 }
 
 export async function getImportTask(taskId: string): Promise<ImportTask | null> {
@@ -372,6 +380,7 @@ export async function runImportWorker(limit = 1) {
       continue;
     }
     try {
+      await trace(sql, task.trace_id, taskId, "ImportTaskCreated", "success", "Worker 已消费任务创建事件");
       const taskRows = await sql.query(`SELECT file_path, rule_json FROM import_tasks WHERE task_id=$1`, [taskId]) as Record<string, unknown>[];
       const taskRow = taskRows[0];
       if (!taskRow) throw new Error("任务文件记录不存在");
