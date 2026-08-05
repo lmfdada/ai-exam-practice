@@ -15,6 +15,8 @@
 | Neon PostgreSQL SKU seed | 通过：20,000 条 SKU 写入成功 |
 | Neon PostgreSQL 10,000 行冷启动压测 | 通过：后台处理 58.1 秒，10,000/10,000 成功；首次上传 10.5 秒 |
 | Neon PostgreSQL 10,000 行热身压测 | 通过：后台处理 57.2 秒，10,000/10,000 成功；最佳上传 1.2 秒 |
+| Vercel Production 部署 | 通过：`dpl_76LcVheTZxvhSHG13LpKC71LqxRt` 已 Ready，并 alias 到 `https://ai-exam-practice-pi.vercel.app` |
+| Vercel Production 页面复验 | 通过：浏览器打开 `/import-monitor` 成功，页面展示生产数据库中的任务、队列和批次统计 |
 
 ## 本地运行方式
 
@@ -27,7 +29,6 @@ npm run perf:v4
 
 ## 尚未完成的生产验收
 
-- Vercel 生产域名仍需重新部署后复验；Neon Integration Secrets 已在 Vercel 控制台轮换，项目需要使用新密钥完成一次 Production Redeploy。
 - PostgreSQL 实测已达到后台 60 秒目标；上传接口热身最佳约 1.2 秒，但受 Vercel/Neon 往返和冷启动影响，尚未稳定达到 1 秒上传目标。
 - 当前版本没有把 Redis/BullMQ 接入生产部署，默认使用数据库 Outbox 任务队列。
 - 监控页的历史趋势目前基于最近批次日志，不替代长期指标系统；长期告警仍建议接入 Vercel/外部监控。
