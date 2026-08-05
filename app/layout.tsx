@@ -22,12 +22,16 @@ const geistMono = Geist_Mono({
 
 const NAV_ITEMS = [
   { href: "/import", icon: "📦" },
+  { href: "/import-tasks", icon: "⚡" },
+  { href: "/import-monitor", icon: "◈" },
   { href: "/history", icon: "📋" },
   { href: "/rules", icon: "⚙️" },
 ];
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
   "/import": "nav.import",
+  "/import-tasks": "nav.importTasks",
+  "/import-monitor": "nav.importMonitor",
   "/history": "nav.history",
   "/rules": "nav.rules",
 };

@@ -17,6 +17,8 @@
 interface DbQueryFn {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
   query: (sql: string, values?: unknown[]) => Promise<unknown[]>;
+  transaction?: (work: (sql: DbQueryFn) => Promise<void>) => Promise<void>;
+  transactionQueries?: (queries: Array<{ sql: string; values?: unknown[] }>) => Promise<unknown[][]>;
 }
 
 // ===== 实例缓存 =====
@@ -152,6 +154,19 @@ function createPgInterface(): DbQueryFn {
     return result as unknown as unknown[];
   };
 
+  (queryFn as any).transaction = async (work: (tx: DbQueryFn) => Promise<void>) => {
+    await work(queryFn as unknown as DbQueryFn);
+  };
+
+  (queryFn as any).transactionQueries = async (
+    queries: Array<{ sql: string; values?: unknown[] }>,
+  ): Promise<unknown[][]> => {
+    const results = await sql.transaction((tx) =>
+      queries.map((query) => tx.query(query.sql, query.values as any[])),
+    );
+    return results as unknown as unknown[][];
+  };
+
   return queryFn as unknown as DbQueryFn;
 }
 
@@ -190,27 +205,29 @@ function createSQLiteInterface(): DbQueryFn {
       .replace(/\bJSONB\b/gi, "TEXT")
       .replace(/\bTEXT\[\]\b/gi, "TEXT")
       .replace(/\bSERIAL\b/gi, "INTEGER")
-      .replace(/=\s*ANY\s*\(/gi, "IN (")
-      .replace(/\$\d+/g, "?");
+      .replace(/=\s*ANY\s*\(/gi, "IN (");
   }
 
   function executeQuery(sql: string, values: unknown[]): unknown[] {
     const translated = translateSQL(sql);
-    const upper = translated.trim().toUpperCase();
+    const boundValues: unknown[] = [];
+    const normalized = translated.replace(/\$(\d+)/g, (_match, index: string) => {
+      boundValues.push(values[Number(index) - 1]);
+      return "?";
+    });
+    const upper = normalized.trim().toUpperCase();
 
-    if (upper.startsWith("INSERT") && translated.toUpperCase().includes("RETURNING")) {
-      const insertSql = translated.replace(/\s+RETURNING\s+\w+/i, "");
-      const stmt = db.prepare(insertSql);
-      const info = stmt.run(...values);
-      return [{ id: Number(info.lastInsertRowid) }];
+    if (normalized.toUpperCase().includes("RETURNING")) {
+      const stmt = db.prepare(normalized);
+      return stmt.all(...boundValues) as Record<string, unknown>[];
     }
 
-    const stmt = db.prepare(translated);
+    const stmt = db.prepare(normalized);
 
     if (upper.startsWith("SELECT") || upper.startsWith("WITH") || upper.startsWith("PRAGMA")) {
-      return stmt.all(...values) as Record<string, unknown>[];
+      return stmt.all(...boundValues) as Record<string, unknown>[];
     } else {
-      const info = stmt.run(...values);
+      const info = stmt.run(...boundValues);
       return [{ changes: info.changes }];
     }
   }
@@ -249,6 +266,31 @@ function createSQLiteInterface(): DbQueryFn {
     values: unknown[] = []
   ): Promise<unknown[]> => {
     return executeQuery(sqlStr, values);
+  };
+
+  (queryFn as any).transaction = async (work: (tx: DbQueryFn) => Promise<void>) => {
+    db.exec("BEGIN");
+    try {
+      await work(queryFn as unknown as DbQueryFn);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  };
+
+  (queryFn as any).transactionQueries = async (
+    queries: Array<{ sql: string; values?: unknown[] }>,
+  ): Promise<unknown[][]> => {
+    db.exec("BEGIN");
+    try {
+      const results = queries.map((query) => executeQuery(query.sql, query.values || []));
+      db.exec("COMMIT");
+      return results;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   };
 
   // 进程退出时关闭 DB

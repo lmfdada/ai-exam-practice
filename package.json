@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "perf:v4": "node scripts/perf-test-v4.mjs",
+    "smoke:v4": "node scripts/smoke-v4-local.mjs",
+    "test:v4": "node scripts/regression-v4-local.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^0.0.66",
