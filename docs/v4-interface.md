@@ -28,6 +28,33 @@
 
 返回任务统计和最多 50 条错误明细。
 
+## 查询错误明细
+
+`GET /api/import-tasks/:taskId/errors?batch=4&error_code=E001&page=1&page_size=50`
+
+返回行级错误分页结果：
+
+```json
+{
+  "success": true,
+  "data": {
+    "rows": [],
+    "page": 1,
+    "pageSize": 50,
+    "total": 0,
+    "totalPages": 1
+  }
+}
+```
+
+`batch` 使用从 0 开始的批次编号；页面展示时会显示为“批次 1/2/3...”。
+
+## 导出失败明细
+
+`GET /api/import-tasks/:taskId/errors/export?batch=4&error_code=E001`
+
+按当前筛选条件导出 CSV，包含 `task_id`、`batch_index`、`row_number`、`field_name`、`raw_value`、`error_code`、`error_reason`、`trace_id` 和 `created_at`。
+
 ## 查询批次
 
 `GET /api/import-tasks/:taskId/batches`
@@ -74,6 +101,10 @@ x-admin-token: ${V4_ADMIN_TOKEN}
 `GET /api/traces/:traceId`
 
 返回任务创建、批次完成、任务完成或失败等时间线事件。
+
+`GET /api/traces?trace_id=trace_xxx&task_id=task_xxx&filename=orders.xlsx&batch=4&row_from=10&row_to=20&error_code=E001`
+
+按 trace、任务、文件名、批次、行号范围和错误码组合搜索 Trace 事件。
 
 ## 监控
 

@@ -39,13 +39,24 @@ type TaskDetails = {
     failed_rows: number;
     status: string;
   }>;
-  errors: Array<{
-    row_number: number;
-    field_name: string;
-    error_code: string;
-    error_reason: string;
-    raw_value: string;
-  }>;
+};
+
+type TaskError = {
+  row_number: number;
+  batch_index: number;
+  field_name: string;
+  error_code: string;
+  error_reason: string;
+  raw_value: string;
+  trace_id: string;
+};
+
+type ErrorPage = {
+  rows: TaskError[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
 
 function statusLabel(status: string) {
@@ -62,8 +73,13 @@ export default function ImportTasksPage() {
   const [file, setFile] = useState<File | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [details, setDetails] = useState<TaskDetails | null>(null);
+  const [errorsPage, setErrorsPage] = useState<ErrorPage>({ rows: [], page: 1, pageSize: 50, total: 0, totalPages: 1 });
+  const [errorBatch, setErrorBatch] = useState("");
+  const [errorCode, setErrorCode] = useState("");
+  const [selectedError, setSelectedError] = useState<TaskError | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const loadDetails = useCallback(async (taskId: string) => {
     const [taskResponse, batchesResponse] = await Promise.all([
@@ -76,8 +92,35 @@ export default function ImportTasksPage() {
     if (batchesJson.success) setDetails({
       batches: batchesJson.data.batches || [],
       performance: batchesJson.data.performance || [],
-      errors: taskJson.data.errors || [],
     });
+  }, []);
+
+  const loadErrors = useCallback(async (taskId: string) => {
+    const params = new URLSearchParams({
+      page: String(errorsPage.page),
+      page_size: "50",
+    });
+    if (errorBatch) params.set("batch", errorBatch);
+    if (errorCode) params.set("error_code", errorCode.trim());
+    const response = await fetch(`/api/import-tasks/${taskId}/errors?${params.toString()}`, { cache: "no-store" });
+    const json = await response.json();
+    if (json.success) {
+      setErrorsPage(json.data);
+      setSelectedError(null);
+    }
+  }, [errorBatch, errorCode, errorsPage.page]);
+
+  useEffect(() => {
+    if (!task?.task_id) return;
+    const timer = window.setTimeout(() => {
+      void loadErrors(task.task_id);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [task?.task_id, loadErrors]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -92,6 +135,9 @@ export default function ImportTasksPage() {
     if (!file) return;
     setLoading(true);
     setMessage("");
+    setErrorBatch("");
+    setErrorCode("");
+    setErrorsPage({ rows: [], page: 1, pageSize: 50, total: 0, totalPages: 1 });
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch("/api/import-tasks", { method: "POST", body: formData });
@@ -119,6 +165,14 @@ export default function ImportTasksPage() {
   }
 
   const progress = task?.total_rows ? Math.round((task.processed_rows / task.total_rows) * 100) : 0;
+  const elapsedSeconds = task ? Math.max(1, Math.floor((nowMs - new Date(task.created_at).getTime()) / 1000)) : 0;
+  const throughput = task ? task.processed_rows / elapsedSeconds : 0;
+  const remainingRows = task ? Math.max(0, task.total_rows - task.processed_rows) : 0;
+  const etaSeconds = throughput > 0 && remainingRows > 0 ? Math.ceil(remainingRows / throughput) : 0;
+  const exportParams = new URLSearchParams();
+  if (errorBatch) exportParams.set("batch", errorBatch);
+  if (errorCode) exportParams.set("error_code", errorCode.trim());
+  const exportUrl = task ? `/api/import-tasks/${task.task_id}/errors/export${exportParams.size ? `?${exportParams.toString()}` : ""}` : "#";
 
   return (
     <div className="v4-page">
@@ -159,6 +213,8 @@ export default function ImportTasksPage() {
               <Metric label="失败行数" value={task.failed_rows} />
               <Metric label="批次进度" value={`${task.completed_batches}/${task.total_batches || "-"}`} />
               <Metric label="降级校验" value={task.degraded ? "是" : "否"} />
+              <Metric label="当前吞吐" value={`${throughput.toFixed(1)} 行/秒`} />
+              <Metric label="预计剩余" value={etaSeconds ? `${etaSeconds} 秒` : "-"} />
             </div>
             <div className="trace-box">
               <div><strong>trace_id</strong><code>{task.trace_id}</code></div>
@@ -175,13 +231,38 @@ export default function ImportTasksPage() {
                 )) : <div className="empty-monitor">暂无批次</div>}
               </div>
               <div className="task-subpanel">
-                <h3>错误</h3>
-                {details?.errors?.length ? details.errors.slice(0, 8).map((error) => (
-                  <div className="task-minirow" key={`${error.row_number}-${error.error_code}`}>
-                    <span>第 {error.row_number} 行 · {error.error_code}</span>
+                <div className="section-title-row compact">
+                  <h3>错误</h3>
+                  <a className="btn btn-secondary btn-small" href={exportUrl}>导出失败明细</a>
+                </div>
+                <div className="error-filters">
+                  <select value={errorBatch} onChange={(event) => { setErrorBatch(event.target.value); setErrorsPage((current) => ({ ...current, page: 1 })); }}>
+                    <option value="">全部批次</option>
+                    {details?.batches?.map((batch) => (
+                      <option key={batch.unit_id} value={batch.batch_index}>批次 {batch.batch_index + 1}</option>
+                    ))}
+                  </select>
+                  <input value={errorCode} placeholder="错误码" onChange={(event) => { setErrorCode(event.target.value); setErrorsPage((current) => ({ ...current, page: 1 })); }} />
+                </div>
+                {errorsPage.rows.length ? errorsPage.rows.map((error) => (
+                  <button className="task-minirow error-row" key={`${error.row_number}-${error.error_code}-${error.field_name}`} onClick={() => setSelectedError(error)}>
+                    <span>第 {error.row_number} 行 · 批次 {error.batch_index + 1} · {error.error_code}</span>
                     <strong>{error.error_reason}</strong>
-                  </div>
+                  </button>
                 )) : <div className="empty-monitor">暂无错误</div>}
+                <div className="pager-row">
+                  <button className="btn btn-secondary btn-small" disabled={errorsPage.page <= 1} onClick={() => setErrorsPage((current) => ({ ...current, page: current.page - 1 }))}>上一页</button>
+                  <span>{errorsPage.page}/{errorsPage.totalPages} · {errorsPage.total} 条</span>
+                  <button className="btn btn-secondary btn-small" disabled={errorsPage.page >= errorsPage.totalPages} onClick={() => setErrorsPage((current) => ({ ...current, page: current.page + 1 }))}>下一页</button>
+                </div>
+                {selectedError && (
+                  <div className="error-detail">
+                    <div><strong>字段</strong><span>{selectedError.field_name}</span></div>
+                    <div><strong>原值</strong><code>{selectedError.raw_value || "-"}</code></div>
+                    <div><strong>原因</strong><span>{selectedError.error_reason}</span></div>
+                    <div><strong>建议</strong><span>{selectedError.error_code === "E001" ? "确认 SKU 是否已同步到主数据后重新导入。" : "检查该行必填字段、格式和解析规则映射。"}</span></div>
+                  </div>
+                )}
               </div>
             </div>
             {task.status === "FAILED" && <button className="btn btn-secondary" onClick={retryWorker}>重试 Worker</button>}

@@ -5,6 +5,7 @@ const baseUrl = process.env.BASE_URL || "http://localhost:3000";
 const count = Number(process.env.SKU_COUNT || 20000);
 const rowCount = Number(process.env.ORDER_COUNT || 10000);
 const adminToken = process.env.V4_ADMIN_TOKEN;
+const invalidSkuEvery = Number(process.env.INVALID_SKU_EVERY || 0);
 
 async function main() {
   const skuRows = Array.from({ length: count }, (_, index) => ({
@@ -28,13 +29,15 @@ async function main() {
   sheet.addRow(["外部编码", "收货门店", "收件人姓名", "收件人电话", "收货地址", "SKU编码", "SKU名称", "数量", "规格"]);
   for (let index = 0; index < rowCount; index++) {
     const skuIndex = index % count;
+    const useInvalidSku = invalidSkuEvery > 0 && (index + 1) % invalidSkuEvery === 0;
+    const skuCode = useInvalidSku ? `SKU_INVALID_${String(index + 1).padStart(5, "0")}` : `SKU_${String(skuIndex + 1).padStart(5, "0")}`;
     sheet.addRow([
       `V4_${Date.now()}_${String(index + 1).padStart(5, "0")}`,
       `压测门店 ${(index % 20) + 1}`,
       "压测用户",
       `138${String(10000000 + index).padStart(8, "0")}`,
       "测试地址",
-      `SKU_${String(skuIndex + 1).padStart(5, "0")}`,
+      skuCode,
       `压测商品 ${skuIndex + 1}`,
       (index % 20) + 1,
       index % 2 ? "标准装" : "家庭装",
@@ -43,7 +46,7 @@ async function main() {
   const output = process.env.OUTPUT || "test-data/10000-orders.xlsx";
   await (await import("node:fs/promises")).mkdir("test-data", { recursive: true });
   await workbook.xlsx.writeFile(output);
-  console.log(JSON.stringify({ skuCount: count, orderCount: rowCount, output, seedRequestId: crypto.randomUUID() }, null, 2));
+  console.log(JSON.stringify({ skuCount: count, orderCount: rowCount, invalidSkuEvery, output, seedRequestId: crypto.randomUUID() }, null, 2));
 }
 
 main().catch((error) => {

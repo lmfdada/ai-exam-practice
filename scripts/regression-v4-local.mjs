@@ -69,6 +69,18 @@ async function runRegression() {
   assert(task.errors[0].raw_value.includes("138****5678"), "phone should be masked in error payload");
   assert(task.errors[0].raw_value.includes("北京市朝阳区***"), "address should be masked in error payload");
 
+  const errorCode = task.errors[0].error_code;
+  const errorPage = await (await fetch(`${baseUrl}/api/import-tasks/${taskId}/errors?batch=0&error_code=${errorCode}&page=1&page_size=50`)).json();
+  assert(errorPage.success && errorPage.data.total === 1, "filtered error endpoint should return the row-level error");
+  assert(errorPage.data.rows[0].raw_value.includes("138****5678"), "filtered error endpoint should keep sensitive data masked");
+
+  const exportResponse = await fetch(`${baseUrl}/api/import-tasks/${taskId}/errors/export?batch=0&error_code=${errorCode}`);
+  const exported = await exportResponse.text();
+  assert(exportResponse.ok && exported.includes("row_number") && exported.includes(errorCode), "error export should return CSV content");
+
+  const traceSearch = await (await fetch(`${baseUrl}/api/traces?task_id=${taskId}&batch=0&error_code=${errorCode}`)).json();
+  assert(traceSearch.success && traceSearch.data.length >= 1, "trace search should find task events by task, batch and error code");
+
   await fetch(`${baseUrl}/api/import-worker?limit=5`, { method: "POST" });
   const afterSecondWorker = await (await fetch(`${baseUrl}/api/import-tasks/${taskId}`, { cache: "no-store" })).json();
   assert(afterSecondWorker.data.processed_rows === 2, "re-consuming an already sent event must not change progress");
@@ -84,7 +96,7 @@ async function runRegression() {
     processedRows: afterSecondWorker.data.processed_rows,
     successRows: afterSecondWorker.data.success_rows,
     failedRows: afterSecondWorker.data.failed_rows,
-    checks: ["extension validation", "partial success", "sensitive masking", "idempotent re-consume"],
+    checks: ["extension validation", "partial success", "sensitive masking", "error filters/export", "trace search", "idempotent re-consume"],
   }, null, 2));
 }
 

@@ -155,7 +155,7 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
       {
         sql: `INSERT INTO event_outbox (event_id, aggregate_id, event_type, payload, status, retry_count, next_retry_at, created_at)
           VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
-        values: [eventId, taskId, JSON.stringify({ task_id: taskId, trace_id: traceId }), createdAt],
+        values: [eventId, taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
       },
       {
         sql: `INSERT INTO trace_events (id, trace_id, task_id, unit_id, event_name, event_status, message, occurred_at)
@@ -174,7 +174,7 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
     await tx.query(
       `INSERT INTO event_outbox (event_id, aggregate_id, event_type, payload, status, retry_count, next_retry_at, created_at)
        VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
-      [id("evt"), taskId, JSON.stringify({ task_id: taskId, trace_id: traceId }), createdAt],
+      [id("evt"), taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
     );
     await trace(tx, traceId, taskId, "ImportTaskCreated", "success", "任务创建并写入 Outbox");
   };
@@ -434,18 +434,108 @@ export async function runImportWorker(limit = 1) {
   return { processed };
 }
 
-export async function getTaskErrors(taskId: string, page = 1, pageSize = 50) {
+export type TaskErrorQueryOptions = {
+  page?: number;
+  pageSize?: number;
+  batch?: number;
+  errorCode?: string;
+};
+
+export async function getTaskErrorsPage(taskId: string, options: TaskErrorQueryOptions = {}) {
   await ensureSchema();
   const sql = getDb();
+  const page = Math.max(1, Math.floor(Number(options.page || 1)));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(Number(options.pageSize || 50))));
+  const values: unknown[] = [taskId];
+  const where = ["task_id=$1"];
+
+  if (typeof options.batch === "number" && Number.isFinite(options.batch)) {
+    values.push(options.batch);
+    where.push(`batch_index=$${values.length}`);
+  }
+  if (options.errorCode) {
+    values.push(options.errorCode);
+    where.push(`error_code=$${values.length}`);
+  }
+
+  const whereSql = where.join(" AND ");
+  const countRows = await sql.query(`SELECT COUNT(*)::int AS count FROM import_task_errors WHERE ${whereSql}`, values) as Record<string, unknown>[];
+  const total = Number(countRows[0]?.count ?? 0);
   const offset = (page - 1) * pageSize;
-  const rows = await sql.query(`SELECT * FROM import_task_errors WHERE task_id=$1 ORDER BY row_number LIMIT $2 OFFSET $3`, [taskId, pageSize, offset]);
-  return rows;
+  const rows = await sql.query(
+    `SELECT * FROM import_task_errors WHERE ${whereSql} ORDER BY row_number, batch_index LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+    [...values, pageSize, offset],
+  );
+  return { rows, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+export async function getTaskErrors(taskId: string, page = 1, pageSize = 50) {
+  return (await getTaskErrorsPage(taskId, { page, pageSize })).rows;
 }
 
 export async function getTaskTrace(traceId: string) {
   await ensureSchema();
   const sql = getDb();
   return sql.query(`SELECT * FROM trace_events WHERE trace_id=$1 ORDER BY occurred_at`, [traceId]);
+}
+
+export type TraceSearchOptions = {
+  traceId?: string;
+  taskId?: string;
+  fileName?: string;
+  batch?: number;
+  rowFrom?: number;
+  rowTo?: number;
+  errorCode?: string;
+  limit?: number;
+};
+
+export async function searchTraceEvents(options: TraceSearchOptions) {
+  await ensureSchema();
+  const sql = getDb();
+  const values: unknown[] = [];
+  const where: string[] = [];
+
+  if (options.traceId) {
+    values.push(options.traceId);
+    where.push(`te.trace_id=$${values.length}`);
+  }
+  if (options.taskId) {
+    values.push(options.taskId);
+    where.push(`te.task_id=$${values.length}`);
+  }
+  if (options.fileName) {
+    values.push(`%${options.fileName}%`);
+    where.push(`it.file_name ILIKE $${values.length}`);
+  }
+  if (typeof options.batch === "number" && Number.isFinite(options.batch)) {
+    values.push(options.batch);
+    where.push(`EXISTS (SELECT 1 FROM import_task_batches b WHERE b.task_id=te.task_id AND b.unit_id=te.unit_id AND b.batch_index=$${values.length})`);
+  }
+  if (typeof options.rowFrom === "number" && Number.isFinite(options.rowFrom)) {
+    values.push(options.rowFrom);
+    where.push(`EXISTS (SELECT 1 FROM import_task_errors e WHERE e.task_id=te.task_id AND e.trace_id=te.trace_id AND e.row_number >= $${values.length})`);
+  }
+  if (typeof options.rowTo === "number" && Number.isFinite(options.rowTo)) {
+    values.push(options.rowTo);
+    where.push(`EXISTS (SELECT 1 FROM import_task_errors e WHERE e.task_id=te.task_id AND e.trace_id=te.trace_id AND e.row_number <= $${values.length})`);
+  }
+  if (options.errorCode) {
+    values.push(options.errorCode);
+    where.push(`EXISTS (SELECT 1 FROM import_task_errors e WHERE e.task_id=te.task_id AND e.trace_id=te.trace_id AND e.error_code=$${values.length})`);
+  }
+
+  const limit = Math.min(500, Math.max(1, Math.floor(Number(options.limit || 100))));
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return sql.query(
+    `SELECT te.*, it.file_name
+     FROM trace_events te
+     LEFT JOIN import_tasks it ON it.task_id=te.task_id
+     ${whereSql}
+     ORDER BY te.occurred_at DESC
+     LIMIT $${values.length + 1}`,
+    [...values, limit],
+  );
 }
 
 export async function getTaskBatches(taskId: string) {

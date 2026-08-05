@@ -17,6 +17,12 @@ open http://localhost:3000/import-tasks
 node scripts/seed-v4-data.mjs
 ```
 
+需要故意制造少量非法 SKU 来验证错误定位时：
+
+```bash
+INVALID_SKU_EVERY=1000 node scripts/seed-v4-data.mjs
+```
+
 真实任务链路压测：
 
 ```bash
@@ -38,8 +44,11 @@ curl -X POST "http://localhost:3000/api/import-worker?limit=5" \
 
 - `POST /api/import-tasks`
 - `GET /api/import-tasks/:taskId`
+- `GET /api/import-tasks/:taskId/errors?batch=4&error_code=E001&page=1&page_size=50`
+- `GET /api/import-tasks/:taskId/errors/export`
 - `POST /api/import-tasks/:taskId/run`
 - `GET /api/traces/:traceId`
+- `GET /api/traces?task_id=...&filename=...&batch=...&row_from=...&row_to=...&error_code=...`
 - `GET /api/import-monitor/summary`
 - `POST /api/import-worker?limit=5`
 - `GET /api/import-tasks/:taskId/batches`
