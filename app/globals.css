@@ -142,6 +142,11 @@ body {
 .monitor-panel a { color: var(--primary-dark); font-size: 13px; text-decoration: none; }
 .monitor-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef1f3; font-size: 13px; }
 .monitor-row strong { font-size: 15px; }
+.monitor-alert-panel { margin-bottom: 16px; border-left: 3px solid var(--warning); }
+.monitor-row.alert-danger strong { color: var(--danger); }
+.monitor-row.alert-warning strong { color: #a36600; }
+.monitor-alert-panel .monitor-row { align-items: flex-start; gap: 16px; }
+.monitor-alert-panel .monitor-row strong { max-width: 70%; text-align: right; white-space: normal; }
 .empty-monitor, .monitor-note { color: var(--text-secondary); font-size: 13px; }
 .monitor-note { margin: 0; line-height: 1.7; }
 .mini-bars { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; align-items: end; min-height: 190px; }

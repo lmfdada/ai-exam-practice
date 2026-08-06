@@ -578,6 +578,51 @@ export async function retryImportTask(taskId: string) {
   return getImportTask(taskId);
 }
 
+function percentile(values: number[], q: number) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * q) - 1));
+  return sorted[index];
+}
+
+function metricStats(values: number[]) {
+  const filtered = values.filter((value) => Number.isFinite(value) && value > 0);
+  return {
+    p50: percentile(filtered, 0.5),
+    p95: percentile(filtered, 0.95),
+    p99: percentile(filtered, 0.99),
+    max: filtered.length ? Math.max(...filtered) : 0,
+  };
+}
+
+function buildMonitorMetrics(recentBatches: Record<string, unknown>[]) {
+  return {
+    total_duration_ms: metricStats(recentBatches.map((row) => Number(row.total_duration_ms))),
+    parse_duration_ms: metricStats(recentBatches.map((row) => Number(row.parse_duration_ms))),
+    rule_duration_ms: metricStats(recentBatches.map((row) => Number(row.rule_duration_ms))),
+    validate_duration_ms: metricStats(recentBatches.map((row) => Number(row.validate_duration_ms))),
+    insert_duration_ms: metricStats(recentBatches.map((row) => Number(row.insert_duration_ms))),
+  };
+}
+
+function buildMonitorAlerts(summary: {
+  queueDepth: number;
+  failedTaskCount: number;
+  maxDurationMs: number;
+}) {
+  const alerts: Array<{ level: "warning" | "danger"; code: string; message: string }> = [];
+  if (summary.queueDepth > 10) {
+    alerts.push({ level: "warning", code: "QUEUE_BACKLOG", message: `队列积压 ${summary.queueDepth} 个事件` });
+  }
+  if (summary.failedTaskCount > 0) {
+    alerts.push({ level: "danger", code: "FAILED_TASKS", message: `${summary.failedTaskCount} 个任务失败，需排查或重试` });
+  }
+  if (summary.maxDurationMs > 10_000) {
+    alerts.push({ level: "warning", code: "SLOW_BATCH", message: `最近批次最大耗时 ${summary.maxDurationMs}ms` });
+  }
+  return alerts;
+}
+
 export async function getMonitorSummary() {
   await ensureSchema();
   const sql = getDb();
@@ -587,16 +632,21 @@ export async function getMonitorSummary() {
     sql.query(`SELECT error_code, COUNT(*)::int AS count FROM import_task_errors GROUP BY error_code ORDER BY count DESC`),
     sql.query(`SELECT AVG(total_duration_ms)::int AS avg_duration_ms, MAX(total_duration_ms)::int AS max_duration_ms FROM batch_performance_log`),
     sql.query(`SELECT task_id, status, total_rows, processed_rows, success_rows, failed_rows, total_batches, completed_batches, created_at, completed_at FROM import_tasks ORDER BY created_at DESC LIMIT 40`),
-    sql.query(`SELECT task_id, batch_index, status, total_duration_ms, processed_rows, success_rows, failed_rows, trace_id, created_at FROM batch_performance_log ORDER BY created_at DESC LIMIT 40`),
+    sql.query(`SELECT task_id, batch_index, status, parse_duration_ms, rule_duration_ms, validate_duration_ms, insert_duration_ms, total_duration_ms, processed_rows, success_rows, failed_rows, trace_id, created_at FROM batch_performance_log ORDER BY created_at DESC LIMIT 200`),
     sql.query(`SELECT task_id, batch_index, row_number, error_code, error_reason, trace_id, created_at FROM import_task_errors ORDER BY created_at DESC LIMIT 40`),
   ]);
+  const queueDepth = Number((batches[0] as Record<string, unknown>)?.count ?? 0);
+  const failedTaskCount = Number((tasks as Record<string, unknown>[]).find((item) => item.status === "FAILED")?.count ?? 0);
+  const maxDurationMs = Number((performance[0] as Record<string, unknown> | undefined)?.max_duration_ms ?? 0);
   return {
     tasks,
-    queue_depth: Number((batches[0] as Record<string, unknown>)?.count ?? 0),
+    queue_depth: queueDepth,
     errors,
     performance: performance[0] ?? {},
+    stage_metrics: buildMonitorMetrics(recentBatches as Record<string, unknown>[]),
+    alerts: buildMonitorAlerts({ queueDepth, failedTaskCount, maxDurationMs }),
     recentTasks,
-    recentBatches,
+    recentBatches: (recentBatches as unknown[]).slice(0, 40),
     recentErrors,
   };
 }

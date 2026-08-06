@@ -23,6 +23,14 @@
 
 生产环境应使用 PostgreSQL，并将 Dispatcher/Worker 部署在独立常驻进程或任务平台；Vercel 只承担 API 和页面。
 
+`event_outbox` 与 BullMQ/QStash 的边界保持在 Dispatcher/Worker 层：当前消费者从数据库拉取 `PENDING` 事件，后续如切换外部队列，可保留 `schema_version`、`event_type`、`aggregate_id` 和 payload 契约，把 Outbox Dispatcher 改为投递到外部队列，Worker 幂等逻辑保持不变。
+
+## 监控告警
+
+- 监控接口返回阶段耗时 P50/P95/P99、队列积压、失败任务和慢批次告警。
+- 配置 `V4_ALERT_WEBHOOK_URL` 后，`GET /api/import-monitor/summary` 会发送 JSON Webhook，并在单实例内按 60 秒节流。
+- 告警条件：队列积压超过 10、存在失败任务、最近批次最大耗时超过 10 秒。
+
 ## 数据降级
 
 当前实现已加入 3 秒 SKU 查询超时和 `V4_FORCE_SKU_DEGRADED=1` 故障注入开关。触发后任务会标记 `degraded=1`，Trace 写入 `ImportTaskDegraded`，批次性能状态标记为 `DEGRADED`。

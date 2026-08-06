@@ -7,6 +7,8 @@ type Summary = {
   queue_depth: number;
   errors: Array<{ error_code: string; count: number }>;
   performance: { avg_duration_ms?: number; max_duration_ms?: number };
+  alerts: Array<{ level: string; code: string; message: string }>;
+  stage_metrics: Record<string, { p50: number; p95: number; p99: number; max: number }>;
   recentTasks: Array<{
     task_id: string;
     status: string;
@@ -22,6 +24,10 @@ type Summary = {
     task_id: string;
     batch_index: number;
     status: string;
+    parse_duration_ms: number;
+    rule_duration_ms: number;
+    validate_duration_ms: number;
+    insert_duration_ms: number;
     total_duration_ms: number;
     processed_rows: number;
     success_rows: number;
@@ -64,7 +70,7 @@ export default function ImportMonitorPage() {
 
   const taskCount = (status: string) => summary?.tasks.find((item) => item.status === status)?.count ?? 0;
   const throughput = useMemo(() => buildThroughput(summary?.recentBatches ?? []), [summary]);
-  const stageStats = useMemo(() => buildStageStats(summary?.recentBatches ?? []), [summary]);
+  const stageStats = useMemo(() => buildStageStats(summary), [summary]);
 
   return (
     <div className="v4-page">
@@ -81,8 +87,20 @@ export default function ImportMonitorPage() {
         <MonitorCard label="队列积压" value={summary?.queue_depth ?? "-"} hint="待投递或处理中事件" tone={(summary?.queue_depth ?? 0) > 10 ? "warning" : "normal"} />
         <MonitorCard label="处理中任务" value={taskCount("PROCESSING")} hint="当前正在消费" />
         <MonitorCard label="失败任务" value={taskCount("FAILED")} hint="需要重试或排查" tone={taskCount("FAILED") ? "danger" : "normal"} />
-        <MonitorCard label="平均批次耗时" value={summary?.performance.avg_duration_ms ? `${summary.performance.avg_duration_ms} ms` : "-"} hint={`最大 ${summary?.performance.max_duration_ms ?? "-"} ms`} />
+        <MonitorCard label="批次 P99" value={summary?.stage_metrics?.total_duration_ms?.p99 ? `${summary.stage_metrics.total_duration_ms.p99} ms` : "-"} hint={`最大 ${summary?.performance.max_duration_ms ?? "-"} ms`} tone={(summary?.stage_metrics?.total_duration_ms?.p99 ?? 0) > 10000 ? "warning" : "normal"} />
       </section>
+
+      {summary?.alerts?.length ? (
+        <section className="monitor-panel monitor-alert-panel">
+          <div className="section-title-row"><h2>当前告警</h2><span className="v4-message">可配置 V4_ALERT_WEBHOOK_URL 主动通知</span></div>
+          {summary.alerts.map((alert) => (
+            <div className={`monitor-row alert-${alert.level}`} key={alert.code}>
+              <span>{alert.code}</span>
+              <strong>{alert.message}</strong>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section className="monitor-columns">
         <div className="monitor-panel">
@@ -161,13 +179,19 @@ function quantile(values: number[], q: number) {
   return sorted[index];
 }
 
-function buildStageStats(batches: Summary["recentBatches"]) {
-  const durations = batches.map((item) => item.total_duration_ms).filter((value) => value > 0);
-  const validate = batches.map((item) => item.total_duration_ms / Math.max(item.processed_rows || 1, 1)).filter((value) => value > 0);
+function metricLine(metric?: { p50: number; p95: number; p99: number }) {
+  return metric ? `${metric.p50} / ${metric.p95} / ${metric.p99} ms` : "-";
+}
+
+function buildStageStats(summary: Summary | null) {
+  const batches = summary?.recentBatches ?? [];
   const insert = batches.map((item) => item.failed_rows + item.success_rows).filter((value) => value > 0);
+  const metrics = summary?.stage_metrics;
   return [
-    { label: "总耗时 P50 / P95", value: durations.length ? `${quantile(durations, 0.5)} / ${quantile(durations, 0.95)} ms` : "-" },
-    { label: "单行耗时 P50 / P95", value: validate.length ? `${quantile(validate, 0.5).toFixed(1)} / ${quantile(validate, 0.95).toFixed(1)} ms` : "-" },
+    { label: "总耗时 P50 / P95 / P99", value: metricLine(metrics?.total_duration_ms) },
+    { label: "解析 P50 / P95 / P99", value: metricLine(metrics?.parse_duration_ms) },
+    { label: "校验 P50 / P95 / P99", value: metricLine(metrics?.validate_duration_ms) },
+    { label: "写入 P50 / P95 / P99", value: metricLine(metrics?.insert_duration_ms) },
     { label: "批次大小中位数", value: insert.length ? `${quantile(insert, 0.5)} 行` : "-" },
     { label: "批次总数", value: `${batches.length} 个` },
   ];

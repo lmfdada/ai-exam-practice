@@ -110,4 +110,4 @@ x-admin-token: ${V4_ADMIN_TOKEN}
 
 `GET /api/import-monitor/summary`
 
-返回队列积压、任务状态、错误分布、最近任务、最近批次和最近错误。
+返回队列积压、任务状态、错误分布、最近任务、最近批次、最近错误、阶段耗时 P50/P95/P99 和当前告警列表。配置 `V4_ALERT_WEBHOOK_URL` 后，接口检测到队列积压、失败任务或慢批次时会发送 JSON Webhook，并在单实例内做 60 秒节流。

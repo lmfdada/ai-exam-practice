@@ -35,7 +35,7 @@ npm run perf:v4
 
 当前默认 Worker 使用数据库任务队列，方便本地和无 Redis 环境运行；生产部署应使用 PostgreSQL，并将 Worker/Dispatcher 放到独立常驻进程或任务平台中。任务接口：
 
-生产环境建议配置 `DATABASE_URL`、`V4_WORKER_TOKEN` 和 `V4_ADMIN_TOKEN`。生产数据库表结构已初始化后，可配置 `V4_ASSUME_SCHEMA_READY=1` 跳过冷启动建表检查，降低上传接口延迟。Dispatcher 调用示例：
+生产环境建议配置 `DATABASE_URL`、`V4_WORKER_TOKEN` 和 `V4_ADMIN_TOKEN`。生产数据库表结构已初始化后，可配置 `V4_ASSUME_SCHEMA_READY=1` 跳过冷启动建表检查，降低上传接口延迟。需要主动告警时配置 `V4_ALERT_WEBHOOK_URL`，监控接口会对队列积压、失败任务和慢批次发送 JSON Webhook。Dispatcher 调用示例：
 
 ```bash
 curl -X POST "http://localhost:3000/api/import-worker?limit=5" \
