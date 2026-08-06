@@ -35,6 +35,7 @@ function now() {
 }
 
 async function ensureSchema() {
+  if (process.env.V4_ASSUME_SCHEMA_READY === "1") return;
   if (schemaPromise) return schemaPromise;
   const sql = getDb();
   schemaPromise = (async () => {
@@ -138,9 +139,7 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
   const traceId = id("trace");
   const extension = file.name.toLowerCase().slice(file.name.lastIndexOf(".")) || ".bin";
   const importDir = path.join(process.env.VERCEL === "1" ? "/tmp" : process.cwd(), "data", "imports");
-  await fs.mkdir(importDir, { recursive: true });
   const filePath = path.join(importDir, `${taskId}${extension}`);
-  await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
   const createdAt = now();
   const task: ImportTask = {
     task_id: taskId,
@@ -158,18 +157,12 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
     completed_at: null,
   };
   const sql = getDb();
-  const eventId = id("evt");
   if (sql.transactionQueries) {
     await sql.transactionQueries([
       {
         sql: `INSERT INTO import_tasks (task_id, trace_id, file_name, file_path, rule_json, status, created_at)
           VALUES ($1,$2,$3,$4,$5,'PENDING',$6)`,
         values: [taskId, traceId, file.name, filePath, ruleJson ?? "", createdAt],
-      },
-      {
-        sql: `INSERT INTO event_outbox (event_id, aggregate_id, event_type, payload, status, retry_count, next_retry_at, created_at)
-          VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
-        values: [eventId, taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
       },
     ]);
     return task;
@@ -180,15 +173,26 @@ export async function createImportTask(file: File, ruleJson?: string | null) {
        VALUES ($1,$2,$3,$4,$5,'PENDING',$6)`,
       [taskId, traceId, file.name, filePath, ruleJson ?? "", createdAt],
     );
-    await tx.query(
-      `INSERT INTO event_outbox (event_id, aggregate_id, event_type, payload, status, retry_count, next_retry_at, created_at)
-       VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
-      [id("evt"), taskId, JSON.stringify({ schema_version: 1, task_id: taskId, trace_id: traceId }), createdAt],
-    );
   };
   if (sql.transaction) await sql.transaction(writeTask);
   else await writeTask(sql);
   return task;
+}
+
+export async function finalizeImportTaskUpload(task: ImportTask, file: File, ruleJson?: string | null) {
+  const sql = getDb();
+  const extension = file.name.toLowerCase().slice(file.name.lastIndexOf(".")) || ".bin";
+  const importDir = path.join(process.env.VERCEL === "1" ? "/tmp" : process.cwd(), "data", "imports");
+  await fs.mkdir(importDir, { recursive: true });
+  const filePath = path.join(importDir, `${task.task_id}${extension}`);
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  await fs.writeFile(filePath, fileBuffer);
+  await sql.query(`UPDATE import_tasks SET file_path=$1, rule_json=$2 WHERE task_id=$3`, [filePath, ruleJson ?? "", task.task_id]);
+  await sql.query(
+    `INSERT INTO event_outbox (event_id, aggregate_id, event_type, payload, status, retry_count, next_retry_at, created_at)
+     VALUES ($1,$2,'ImportTaskCreated',$3,'PENDING',0,$4,$4)`,
+    [id("evt"), task.task_id, JSON.stringify({ schema_version: 1, task_id: task.task_id, trace_id: task.trace_id }), now()],
+  );
 }
 
 export async function getImportTask(taskId: string): Promise<ImportTask | null> {

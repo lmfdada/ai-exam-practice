@@ -14,7 +14,7 @@
 | Neon PostgreSQL 本地 API 连通 | 通过：`/api/import-monitor/summary` 返回 `success:true` |
 | Neon PostgreSQL SKU seed | 通过：20,000 条 SKU 写入成功 |
 | Neon PostgreSQL 10,000 行冷启动压测 | 通过：后台处理 58.1 秒，10,000/10,000 成功；首次上传 10.5 秒 |
-| Neon PostgreSQL 10,000 行热身压测 | 通过：后台处理 57.2 秒，10,000/10,000 成功；最佳上传 1.2 秒 |
+| Neon PostgreSQL 10,000 行热身压测 | 通过：后台处理 36.8 秒，10,000/10,000 成功；上传 2.5 秒 |
 | Vercel Production 部署 | 通过：`dpl_76LcVheTZxvhSHG13LpKC71LqxRt` 已 Ready，并 alias 到 `https://ai-exam-practice-pi.vercel.app` |
 | Vercel Production 页面复验 | 通过：浏览器打开 `/import-monitor` 成功，页面展示生产数据库中的任务、队列和批次统计 |
 
@@ -29,7 +29,7 @@ npm run perf:v4
 
 ## 尚未完成的生产验收
 
-- PostgreSQL 实测已达到后台 60 秒目标；上传接口热身最佳约 1.2 秒，但受 Vercel/Neon 往返和冷启动影响，尚未稳定达到 1 秒上传目标。
+- PostgreSQL 实测已达到后台 60 秒目标；已新增 `V4_ASSUME_SCHEMA_READY=1` 用于生产跳过冷启动建表检查，但上传接口仍未稳定进入 1 秒，最新本地热身约 2.5 秒。
 - 当前版本没有把 Redis/BullMQ 接入生产部署，默认使用数据库 Outbox 任务队列。
 - 监控页的历史趋势目前基于最近批次日志，不替代长期指标系统；长期告警仍建议接入 Vercel/外部监控。
 - 完整 `npm run lint` 仍会扫描历史 `.vercel/output` 生成文件及旧版 `lib/db.ts` 的既有告警；V4 新增模块定向 lint 已通过。

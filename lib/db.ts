@@ -108,26 +108,28 @@ function createPgInterface(): DbQueryFn {
   const { neon } = require("@neondatabase/serverless") as typeof import("@neondatabase/serverless");
   const sql = neon(process.env.DATABASE_URL!);
 
-  // 初始化建表 — 逐条执行（Neon 不支持多语句单次执行）
-  const statements = PG_CREATE_TABLES_SQL
-    .split(";")
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-  for (const stmt of statements) {
-    sql.query(stmt + ";", []).catch((err: any) => {
-      // IF NOT EXISTS 表已存在时忽略
+  if (process.env.V4_ASSUME_SCHEMA_READY !== "1") {
+    // 初始化建表 — 逐条执行（Neon 不支持多语句单次执行）
+    const statements = PG_CREATE_TABLES_SQL
+      .split(";")
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    for (const stmt of statements) {
+      sql.query(stmt + ";", []).catch((err: any) => {
+        // IF NOT EXISTS 表已存在时忽略
+        if (!err.message?.includes("already exists")) {
+          console.warn("[db] PostgreSQL 建表:", err.message);
+        }
+      });
+    }
+
+    // 自动迁移：添加 temperature_layer 列（兼容已有数据库）
+    sql.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS temperature_layer TEXT DEFAULT ''`, []).catch((err: any) => {
       if (!err.message?.includes("already exists")) {
-        console.warn("[db] PostgreSQL 建表:", err.message);
+        console.warn("[db] 迁移 temperature_layer:", err.message);
       }
     });
   }
-
-  // 自动迁移：添加 temperature_layer 列（兼容已有数据库）
-  sql.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS temperature_layer TEXT DEFAULT ''`, []).catch((err: any) => {
-    if (!err.message?.includes("already exists")) {
-      console.warn("[db] 迁移 temperature_layer:", err.message);
-    }
-  });
 
   const queryFn = async (
     strings: TemplateStringsArray | string,

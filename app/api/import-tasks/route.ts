@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
-import { createImportTask, runImportWorker } from "@/lib/import-tasks";
+import { createImportTask, finalizeImportTaskUpload, runImportWorker } from "@/lib/import-tasks";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "解析规则过大" }, { status: 400 });
     }
     const task = await createImportTask(file, rule);
-    after(() => runImportWorker(1).catch((error) => console.error("[v4] worker failed", error)));
+    after(async () => {
+      try {
+        await finalizeImportTaskUpload(task, file, rule);
+        await runImportWorker(1);
+      } catch (error) {
+        console.error("[v4] upload finalization failed", error);
+      }
+    });
     return NextResponse.json({ success: true, data: task }, { status: 202 });
   } catch (error) {
     console.error("[v4] create import task failed", error);
