@@ -15,7 +15,7 @@
 | Neon PostgreSQL SKU seed | 通过：20,000 条 SKU 写入成功 |
 | Neon PostgreSQL 10,000 行冷启动压测 | 通过：后台处理 58.1 秒，10,000/10,000 成功；首次上传 10.5 秒 |
 | Neon PostgreSQL 10,000 行热身压测 | 通过：后台处理 36.8 秒，10,000/10,000 成功；上传 2.5 秒 |
-| Vercel Production 部署 | 通过：`dpl_76LcVheTZxvhSHG13LpKC71LqxRt` 已 Ready，并 alias 到 `https://ai-exam-practice-pi.vercel.app` |
+| Vercel Production 部署 | 通过：`dpl_28hpbkHsRDEPhVi2wescDUvpabCi` 已 Ready，并 alias 到 `https://ai-exam-practice-pi.vercel.app` |
 | Vercel Production 页面复验 | 通过：浏览器打开 `/import-monitor` 成功，页面展示生产数据库中的任务、队列和批次统计 |
 
 ## 本地运行方式
