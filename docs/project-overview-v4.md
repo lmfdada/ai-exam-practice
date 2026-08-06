@@ -28,6 +28,8 @@
 10. Demo/visit notes
    - `/import-tasks`
    - `/import-monitor`
+11. Large model call notes
+   - `docs/llm-call-notes.md`
 
 ## Notes
 
